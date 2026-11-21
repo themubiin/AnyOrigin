@@ -1,10 +1,13 @@
-# Local database and dynamic cache
+# Local data & cache
 data/*.db*
 data/config.json
 !data/.gitkeep
 !data/.htaccess
 
-# OS & Editor files
+# Internal planning
+.gsd/
+
+# OS & Temp
 .DS_Store
 Thumbs.db
 *.log

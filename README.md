@@ -1,32 +1,29 @@
 <div align="center">
 
-<img src="assets/hero-banner.png" alt="AnyOrigin Banner" width="100%" style="border-radius: 12px; margin-bottom: 24px;" />
+<img src="assets/hero-banner.png" alt="AnyOrigin Banner" width="100%" style="border-radius: 8px; margin-bottom: 20px;" />
 
-<br/>
-
-<img src="assets/logo.png" alt="AnyOrigin Logo" width="96" height="96" />
+<img src="assets/logo.png" alt="AnyOrigin Logo" width="80" height="80" />
 
 # AnyOrigin
-### The Zero-Dependency, Self-Hosted Multi-Cloud Load Balancer & Failover Manager
 
-[![PHP Version](https://img.shields.io/badge/PHP-8.1%20%7C%208.2%20%7C%208.3%20%7C%208.4-777bb4.svg?style=flat-square&logo=php&logoColor=white)](https://php.net)
-[![Database](https://img.shields.io/badge/Database-Embedded%20SQLite%20(Zero--Config)-003B57.svg?style=flat-square&logo=sqlite&logoColor=white)](https://sqlite.org)
-[![Deployment](https://img.shields.io/badge/cPanel%20%2F%20VPS-100%25%20Drop--in-22c55e.svg?style=flat-square)](https://github.com/themubiin/AnyOrigin)
-[![Throughput](https://img.shields.io/badge/Throughput-100k%2B%20Req%2FDay%20(<1ms)-38bdf8.svg?style=flat-square)](https://github.com/themubiin/AnyOrigin)
+A zero-dependency, self-hosted traffic coordinator and failover manager for web applications.
+
+[![PHP Version](https://img.shields.io/badge/PHP-8.1%2B-777bb4.svg?style=flat-square)](https://php.net)
+[![Database](https://img.shields.io/badge/Database-SQLite%20(embedded)-003B57.svg?style=flat-square)](https://sqlite.org)
+[![Deployment](https://img.shields.io/badge/cPanel%20%2F%20VPS-Drop--in-22c55e.svg?style=flat-square)](https://github.com/themubiin/AnyOrigin)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg?style=flat-square)](LICENSE)
 
 <br/>
 
-**Unite Vercel, Netlify, Render, cPanel, and VPS into one unbreakable website — with ZERO cloud fees, NO external databases, and NO Cloudflare dependency.**
+Chain multiple hosting providers (Vercel, Netlify, Render, VPS, cPanel) behind one domain. If your primary host crashes or exhausts free-tier bandwidth, AnyOrigin switches visitors to your standby servers in under a second.
 
 <br/>
 
-[🚀 1-Minute Quickstart](#-1-minute-beginner-quickstart-cpanel--vps) •
-[📐 Architecture](#-how-traffic-failover-works) •
-[✨ Key Features](#-key-features) •
-[📊 Comparison](#-how-does-anyorigin-compare) •
-[🛡️ Smart Protections](#-built-in-enterprise-protections) •
-[❓ FAQ](#-frequently-asked-questions)
+[Quickstart](#quickstart) &bull;
+[How It Works](#how-it-works) &bull;
+[Features](#features) &bull;
+[Comparison](#comparison) &bull;
+[FAQ](#faq)
 
 ---
 
@@ -34,171 +31,153 @@
 
 <br/>
 
-## 📐 How Traffic Failover Works
+## Why this exists
+
+Modern hosting platforms like Vercel and Netlify have generous free plans, but their hard limits can catch you off guard:
+
+1. **Quota halts:** When you hit free bandwidth or execution caps, Vercel serves an immediate `402 Payment Required` or `429 Too Many Requests`. Your site stops cold.
+2. **Expensive alternatives:** Cloudflare Load Balancing starts at $15/month with per-origin billing, and AWS Route 53 requires complex DNS failover configurations.
+3. **Database overhead:** Most self-hosted reverse proxies or managers require running PostgreSQL, Redis, or Docker daemon services just to store a couple of host URLs.
+
+AnyOrigin was built to solve this simply: drop a lightweight PHP proxy on any shared cPanel or $3 VPS, configure your upstream hosts through a web UI, and let it handle failovers automatically. No external database, no monthly cloud bills.
+
+---
+
+## How It Works
 
 <div align="center">
-  <img src="assets/architecture.png" alt="AnyOrigin Architecture Diagram" width="100%" style="border-radius: 12px; margin: 16px 0;" />
+  <img src="assets/architecture.png" alt="AnyOrigin Routing Diagram" width="100%" style="border-radius: 8px; margin: 16px 0;" />
 </div>
 
 ```
-                                  Incoming Visitor
-                               (https://example.com)
-                                         │
-                                         ▼
-                     ┌───────────────────────────────────────┐
-                     │     AnyOrigin Fast-Path Ingress       │
-                     │  (index.php • Microsecond Cache Read) │
-                     └───────────────────┬───────────────────┘
-                                         │
-                    ┌────────────────────┼───────────────────┐
-                    ▼ (Try #1)           │                   │
-         ┌─────────────────────┐         │                   │
-         │   Vercel Primary    │         │                   │
-         │  (Free Tier Limit)  │         │                   │
-         │ 🔴 HTTP 402/429 Hit │         │                   │
-         └──────────┬──────────┘         │                   │
-                    │                    ▼ (Try #2 - 0.2s)   │
-                    │ Failover   ┌─────────────────────┐     │
-                    └───────────>│   Netlify Standby   │     │
-                                 │   🟢 200 OK Served  │     │
-                                 └─────────────────────┘     ▼ (Try #3 - Disaster Recovery)
-                                                    ┌─────────────────────┐
-                                                    │ Self-Hosted VPS/App │
-                                                    │    ⚪ Hot Standby   │
-                                                    └─────────────────────┘
+                            Incoming Request (example.com)
+                                          │
+                                          ▼
+                      ┌───────────────────────────────────────┐
+                      │               index.php               │
+                      │  (Fast-path ingress • < 1ms overhead) │
+                      └───────────────────┬───────────────────┘
+                                          │
+                     ┌────────────────────┼───────────────────┐
+                     ▼ (Tier 1)           │                   │
+          ┌─────────────────────┐         │                   │
+          │    Vercel Primary   │         │                   │
+          │  🔴 Returns 402/429 │         │                   │
+          └──────────┬──────────┘         │                   │
+                     │                    ▼ (Tier 2 - 0.2s)   │
+                     │ Failover   ┌─────────────────────┐     │
+                     └───────────>│   Netlify Standby   │     │
+                                  │   🟢 Serves 200 OK  │     │
+                                  └─────────────────────┘     ▼ (Tier 3 - Fallback)
+                                                     ┌─────────────────────┐
+                                                     │    Self-Hosted VPS  │
+                                                     │      ⚪ Hot Standby │
+                                                     └─────────────────────┘
 ```
 
-> **Why AnyOrigin?**  
-> Modern hosting platforms (Vercel, Netlify) offer generous free tiers, but shut down your website the moment bandwidth or invocation quotas run out (`HTTP 402 Payment Required` or `429 Rate Limit`).  
-> **AnyOrigin turns multiple free-tier hosts into an enterprise-grade, high-availability cluster.** When your primary host fails, AnyOrigin redirects the visitor to a backup host in under 1 second without dropping user sessions or showing an error screen.
+1. Incoming requests enter through `index.php`.
+2. The proxy reads the active routing table from an in-memory cached JSON file (`data/config.json`). This takes under 0.1ms and avoids querying SQLite on every request.
+3. It tries Tier 1 (e.g. Vercel). If it returns a failover status code (`402`, `429`, `5xx`) or times out, it instantly retries Tier 2 (e.g. Netlify).
+4. The response headers, status code, and body stream directly back to the visitor.
 
 ---
 
-## ⚡ 1-Minute Beginner Quickstart (cPanel / VPS)
+## Quickstart
 
-AnyOrigin is designed to be **100% plug-and-play**. No `npm run build`, no Docker, no Node.js background services, and no MySQL setup required!
+AnyOrigin requires PHP 8.1+ with the `curl` and `pdo_sqlite` extensions (standard on almost all cPanel shared hosts and Linux distributions).
 
-### Step 1: Upload Files
-Upload the repository files directly into your cPanel `public_html/` folder (or git clone on your VPS / Apache / Nginx server).
+### Installation
 
-```bash
-git clone https://github.com/themubiin/AnyOrigin.git
-```
+1. Clone or download the repository into your web root (e.g. `public_html/` on cPanel or `/var/www/html` on VPS):
+   ```bash
+   git clone https://github.com/themubiin/AnyOrigin.git .
+   ```
+2. Navigate to `https://yourdomain.com/admin` in your browser.
+3. Log in with the default password:
+   ```
+   admin123
+   ```
+4. Add your upstream origins (e.g. `https://my-app.vercel.app` as Primary, `https://my-app.netlify.app` as Standby).
+5. Change the default password in the console.
 
-### Step 2: Open the Dashboard
-Navigate to `https://yourdomain.com/admin` in your web browser.
-
-* **Default Admin Password:** `admin123` *(changeable directly inside the dashboard with 1 click)*.
-
-### Step 3: Add Your Hosts
-Add your hosting URLs in priority order:
-1. **Primary Host:** `https://my-app.vercel.app` 🟢
-2. **Standby Host:** `https://my-app.netlify.app` 🟡
-3. **Emergency Backup:** `https://my-vps-server.com` ⚪
-
-**🎉 That's it! Your website is now fully protected against cloud limits and server downtime.**
+That is it. Visitor traffic arriving at `yourdomain.com` is now automatically routed and failover-protected.
 
 ---
 
-## ✨ Key Features
+## Features
 
-| Capability | What It Does |
-| :--- | :--- |
-| ⚡ **100k+ Req/Day Fast-Path** | Public visitors hit `index.php`, which reads cached rules in memory (< 1ms overhead). Handles high traffic easily on cheap $3 VPS or cPanel. |
-| 🛡️ **Sub-Second Failover** | Instant in-flight switching on `HTTP 402`, `429`, `500`, `502`, `503`, `504`, or network timeouts. |
-| 💾 **Zero External Database** | Automatically creates and uses a local embedded SQLite database (`data/anyorigin.db`). No PostgreSQL, MySQL, or Redis needed. |
-| 🔄 **Smart Header & Redirect Rewriting** | Rewrites upstream `Host` and `Location` redirect headers so visitors stay on `example.com` and are never bounced away to Netlify/Vercel URLs. |
-| 💳 **Idempotency & Safe POST Guard** | Protects e-commerce sites by never blindly retrying `POST` requests on `500` server errors to prevent duplicate payments. |
-| 🔒 **SSRF Shield** | Blocks malicious internal IP scanning (`127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`, AWS metadata `169.254.169.254`). |
+### Host & Redirect Rewriting
+When routing traffic to multi-tenant backends (such as `my-app.netlify.app`), sending the visitor's original `Host` header can cause Netlify or Vercel to return a 404 because the custom domain has not been registered inside that secondary project.
+* AnyOrigin automatically adjusts the upstream `Host` header to match the destination project.
+* It passes `X-Forwarded-Host` and `X-Forwarded-Proto` so the backend application generates correct absolute links.
+* If the upstream server responds with a redirect (`Location: https://my-app.netlify.app/dashboard`), AnyOrigin intercepts and rewrites the header back to `https://yourdomain.com/dashboard`, keeping visitors on your primary domain.
+* `Set-Cookie` domain attributes are rewritten to bind directly to your primary domain.
+
+### Idempotency Protection (Safe POST Retries)
+Safe idempotent methods (`GET`, `HEAD`, `OPTIONS`) can be retried on any server failure. However, blindly retrying `POST` or `PUT` requests when an upstream server returns a `500` error or drops the connection could cause duplicate database entries or repeated payment charges.
+* AnyOrigin retries `POST` requests **only** if the upstream server returns `HTTP 402` (payment/quota limit) or `HTTP 429` (rate limit). In these cases, the platform rejected the request before execution, making a retry safe.
+* Retries on `5xx` errors for `POST` requests are disabled to protect data integrity.
+
+### SSRF Protection
+The admin console validates origin URLs to prevent Server-Side Request Forgery (SSRF). Private IPv4/IPv6 ranges (`127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`) and cloud metadata endpoints (`169.254.169.254`) are rejected.
+
+### Zero Database Server
+All origin configurations and failover settings are stored locally in `data/anyorigin.db` via SQLite with Write-Ahead Logging (WAL) enabled. No MySQL, PostgreSQL, or Redis configuration is needed.
 
 ---
 
-## 📊 How Does AnyOrigin Compare?
+## Comparison
 
-| Feature | AWS Route 53 / Cloudflare LB | Typical Reverse Proxy (Nginx) | **AnyOrigin** 🛡️ |
+| Feature | AWS Route 53 / Cloudflare LB | Standard Nginx Reverse Proxy | **AnyOrigin** |
 | :--- | :---: | :---: | :---: |
-| **Monthly Cost** | 💲 $15 - $50+/month | 💲 Free (Manual Config) | **💲 100% Free & Open Source** |
-| **No Cloudflare Dependency** | ❌ Requires Cloudflare | ✅ Yes | **✅ Yes (100% Self-Hosted)** |
-| **Zero-Config Database** | ❌ Cloud managed | ❌ N/A | **✅ SQLite Embedded** |
-| **HTTP 402 Quota Detection** | ❌ Only checks basic ping | ❌ Requires custom Lua scripts | **✅ Built-in Native Trigger** |
-| **Beginner Friendly UI** | ⚠️ Complex AWS/Cloud Console | ❌ Raw config files only | **✅ Clean, Modern Dark Dashboard** |
-| **Setup Time** | 30 - 60 minutes | 20 - 45 minutes | **⚡ Under 60 Seconds** |
+| **Pricing** | $15 to $50+/month | Free | **Free & Open Source** |
+| **Setup Complexity** | High (DNS health checks & routing policies) | Medium (manual conf editing & reloads) | **Low (single folder upload, web UI)** |
+| **External Dependencies** | Vendor cloud infrastructure | Nginx runtime | **PHP 8.1+ & SQLite** |
+| **HTTP 402 Detection** | No (only basic TCP/HTTP pings) | Requires custom Lua scripts | **Built-in native trigger** |
+| **cPanel Compatibility** | N/A | Requires root access | **100% Drop-in** |
 
 ---
 
-## 🛡️ Built-in Enterprise Protections
-
-### 1. Transparent Host & Location Rewriting
-When routing traffic to a backup provider (e.g. `my-app.netlify.app`), sending the client's `Host: example.com` header causes modern multi-tenant platforms to return a 404. Furthermore, upstream redirects (`Location: https://my-app.netlify.app/dashboard`) would leak the backup URL.  
-* AnyOrigin automatically adapts the upstream `Host` header.  
-* Rewrites upstream `Location` headers so all redirects point cleanly to `https://example.com/dashboard`.  
-* Rewrites `Set-Cookie` domain attributes to match your primary domain.
-
-### 2. Safe POST Protection (Anti-Double Charge)
-Safe methods (`GET`, `HEAD`, `OPTIONS`) can be retried across any failure. But retrying `POST` requests after a `500` crash can lead to duplicate orders or double billing.  
-* AnyOrigin safely retries `POST` **only** when the cloud platform explicitly returns `402` or `429` (guaranteeing the server rejected the request before execution).  
-* Blind retries on `500` server crashes are suppressed to keep financial data safe.
-
-### 3. SSRF Shield
-AnyOrigin strictly blocks attempts to configure origins pointing to private subnets or instance metadata:
-* `127.0.0.0/8` (Loopback / Localhost)
-* `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (Private networks)
-* `169.254.169.254` (Cloud instance metadata)
-
----
-
-## 🌐 Community & Preview
+## Preview
 
 <div align="center">
-  <img src="assets/social-preview.png" alt="AnyOrigin Social Preview" width="100%" style="border-radius: 12px; margin: 16px 0;" />
+  <img src="assets/social-preview.png" alt="AnyOrigin Preview" width="100%" style="border-radius: 8px; margin: 16px 0;" />
 </div>
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
-├── .htaccess             # Ingress router (sends visitors to index.php, admin to /admin)
-├── index.php             # Fast-Path Ingress Proxy Engine (< 1ms overhead, 100k+ req/day)
-├── admin/                # Beginner-friendly dark dashboard
-│   ├── bootstrap.php     # SQLite schema & config cache compiler
-│   ├── index.php         # Main dashboard (host priority, rules, ping tests)
-│   └── login.php         # Admin authentication
-├── assets/               # Brand assets, logos, and architecture diagrams
+├── .htaccess             # Directs visitors to index.php and admin requests to /admin
+├── index.php             # Fast-path ingress proxy (< 1ms overhead)
+├── admin/
+│   ├── bootstrap.php     # SQLite initialization and cache sync
+│   ├── index.php         # Management console
+│   └── login.php         # Console authentication
+├── assets/               # Visual assets and diagrams
 ├── data/
-│   ├── .htaccess         # Protects database from direct public browser download
+│   ├── .htaccess         # Blocks public browser access to data files
 │   └── .gitkeep
 └── scripts/
-    └── test-failover.php # Standalone test suite (run: php scripts/test-failover.php)
+    └── test-failover.php # Standalone verification test (php scripts/test-failover.php)
 ```
 
 ---
 
-## ❓ Frequently Asked Questions
+## FAQ
 
-<details>
-<summary><b>Can I run this on shared cPanel hosting?</b></summary>
-Yes! AnyOrigin runs natively on standard cPanel shared hosting with PHP 8.1+. You do not need root access, Node.js, or SSH. Simply upload the files to your <code>public_html/</code> directory.
-</details>
+**Can this run on shared cPanel hosting?**  
+Yes. As long as your hosting provides PHP 8.1+ with `curl` and `pdo_sqlite` enabled (default on nearly all cPanel providers), AnyOrigin works without needing terminal access or root permissions.
 
-<details>
-<summary><b>How does AnyOrigin handle user logins and sessions?</b></summary>
-AnyOrigin transparently forwards all <code>Cookie</code>, <code>Set-Cookie</code>, and <code>Authorization</code> headers. For sessions to persist seamlessly when switching hosts, your web application should use stateless authentication (such as JWT tokens) or an external database (e.g. Supabase, Firebase, Neon, or MySQL).
-</details>
+**Will visitor sessions stay logged in when switching hosts?**  
+AnyOrigin forwards `Cookie`, `Set-Cookie`, and `Authorization` headers. For user sessions to persist across different hosts (e.g. from Vercel to Netlify), your web application should use stateless authentication (like JWT tokens) or a shared database (such as Supabase, Neon, Firebase, or external MySQL).
 
-<details>
-<summary><b>Do I need a separate MySQL database?</b></summary>
-No! AnyOrigin automatically creates and maintains a local embedded SQLite database in <code>data/anyorigin.db</code>. It is completely zero-configuration.
-</details>
-
-<details>
-<summary><b>How does it achieve 100k+ requests per day on cheap hosting?</b></summary>
-The public-facing engine (<code>index.php</code>) does not boot heavy application frameworks on incoming requests. It reads an ultra-fast compiled cache (<code>data/config.json</code>) in microseconds, adding less than 1ms of latency overhead.
-</details>
+**What throughput can it handle?**  
+Because `index.php` reads routing rules from an in-memory JSON cache without framework bootstrapping, its proxy overhead is typically under 1ms. On a modest VPS or cPanel server, it can comfortably handle 100,000+ requests per day.
 
 ---
 
-## 📄 License
+## License
 
-MIT License. Free for personal, commercial, and agency use.
-Built with ❤️ for developers who love uptime without cloud bills.
+[MIT](LICENSE)

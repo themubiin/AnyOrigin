@@ -1,7 +1,9 @@
 <?php
+
+declare(strict_types=1);
+
 /**
- * AnyOrigin Core Bootstrap & SQLite Manager
- * Zero External Dependencies • 100% PHP 8.1+ & SQLite Native
+ * AnyOrigin - SQLite Database & Cache Bootstrap
  */
 
 session_start();
@@ -11,17 +13,15 @@ define('DATA_DIR', ANYORIGIN_DIR . '/data');
 define('DB_PATH', DATA_DIR . '/anyorigin.db');
 define('CONFIG_PATH', DATA_DIR . '/config.json');
 
-// Ensure data directory exists
 if (!is_dir(DATA_DIR)) {
     mkdir(DATA_DIR, 0755, true);
 }
 
-/**
- * Returns SQLite PDO instance
- */
 function getDb(): PDO {
     static $pdo = null;
-    if ($pdo !== null) return $pdo;
+    if ($pdo !== null) {
+        return $pdo;
+    }
 
     $pdo = new PDO('sqlite:' . DB_PATH);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -29,7 +29,6 @@ function getDb(): PDO {
     $pdo->exec('PRAGMA journal_mode = WAL;');
     $pdo->exec('PRAGMA synchronous = NORMAL;');
 
-    // Create tables idempotently
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS sites (
             id TEXT PRIMARY KEY,
@@ -75,7 +74,6 @@ function getDb(): PDO {
         );
     ");
 
-    // Check if admin password is set
     $pwdCheck = $pdo->prepare("SELECT value FROM admin_settings WHERE key = 'admin_password_hash'");
     $pwdCheck->execute();
     if (!$pwdCheck->fetchColumn()) {
@@ -88,11 +86,10 @@ function getDb(): PDO {
     return $pdo;
 }
 
-/**
- * Compiles database state into fast-read config.json
- */
 function syncConfigCache(?PDO $pdo = null): array {
-    if (!$pdo) $pdo = getDb();
+    if (!$pdo) {
+        $pdo = getDb();
+    }
 
     $origins = $pdo->query("SELECT id, name, url, priority, host_header_override, is_active, status, latency_ms FROM origins WHERE is_active = 1 ORDER BY priority ASC")->fetchAll();
     $rules = $pdo->query("SELECT * FROM failover_rules LIMIT 1")->fetch() ?: [
@@ -127,23 +124,22 @@ function syncConfigCache(?PDO $pdo = null): array {
     return $config;
 }
 
-/**
- * Validates origin URL against SSRF and private IP ranges
- */
 function validateOriginUrl(string $url): array {
-    if (empty($url)) return ['valid' => false, 'error' => 'URL cannot be empty.'];
+    if (empty($url)) {
+        return ['valid' => false, 'error' => 'URL cannot be empty.'];
+    }
 
     $parsed = parse_url(trim($url));
     if (!$parsed || empty($parsed['scheme']) || empty($parsed['host'])) {
-        return ['valid' => false, 'error' => 'Invalid URL format. Must include https://'];
+        return ['valid' => false, 'error' => 'Invalid URL. Must include http:// or https://'];
     }
 
-    if (!in_array(strtolower($parsed['scheme']), ['http', 'https'])) {
-        return ['valid' => false, 'error' => 'Only HTTP and HTTPS protocols are allowed.'];
+    if (!in_array(strtolower($parsed['scheme']), ['http', 'https'], true)) {
+        return ['valid' => false, 'error' => 'Only HTTP and HTTPS protocols are supported.'];
     }
 
     $host = strtolower($parsed['host']);
-    $blockedPatterns = [
+    $blocked = [
         '/^127\./',
         '/^10\./',
         '/^172\.(1[6-9]|2[0-9]|3[0-1])\./',
@@ -155,18 +151,15 @@ function validateOriginUrl(string $url): array {
         '/^fe80:/i',
     ];
 
-    foreach ($blockedPatterns as $pattern) {
+    foreach ($blocked as $pattern) {
         if (preg_match($pattern, $host)) {
-            return ['valid' => false, 'error' => "SSRF Blocked: Private/internal target ($host) is forbidden."];
+            return ['valid' => false, 'error' => "Private or loopback address ($host) is blocked."];
         }
     }
 
     return ['valid' => true, 'host' => $host];
 }
 
-/**
- * Auth check helper
- */
 function isAuthenticated(): bool {
     return !empty($_SESSION['anyorigin_auth']);
 }
