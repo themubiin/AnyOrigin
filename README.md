@@ -1,6 +1,12 @@
 <div align="center">
 
-# 🛡️ AnyOrigin
+<img src="assets/hero-banner.png" alt="AnyOrigin Banner" width="100%" style="border-radius: 12px; margin-bottom: 24px;" />
+
+<br/>
+
+<img src="assets/logo.png" alt="AnyOrigin Logo" width="96" height="96" />
+
+# AnyOrigin
 ### The Zero-Dependency, Self-Hosted Multi-Cloud Load Balancer & Failover Manager
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.1%20%7C%208.2%20%7C%208.3%20%7C%208.4-777bb4.svg?style=flat-square&logo=php&logoColor=white)](https://php.net)
@@ -16,6 +22,7 @@
 <br/>
 
 [🚀 1-Minute Quickstart](#-1-minute-beginner-quickstart-cpanel--vps) •
+[📐 Architecture](#-how-traffic-failover-works) •
 [✨ Key Features](#-key-features) •
 [📊 Comparison](#-how-does-anyorigin-compare) •
 [🛡️ Smart Protections](#-built-in-enterprise-protections) •
@@ -27,7 +34,11 @@
 
 <br/>
 
-## 🎯 The Problem & The Solution
+## 📐 How Traffic Failover Works
+
+<div align="center">
+  <img src="assets/architecture.png" alt="AnyOrigin Architecture Diagram" width="100%" style="border-radius: 12px; margin: 16px 0;" />
+</div>
 
 ```
                                   Incoming Visitor
@@ -136,6 +147,14 @@ AnyOrigin strictly blocks attempts to configure origins pointing to private subn
 
 ---
 
+## 🌐 Community & Preview
+
+<div align="center">
+  <img src="assets/social-preview.png" alt="AnyOrigin Social Preview" width="100%" style="border-radius: 12px; margin: 16px 0;" />
+</div>
+
+---
+
 ## 📁 Repository Structure
 
 ```
@@ -145,6 +164,7 @@ AnyOrigin strictly blocks attempts to configure origins pointing to private subn
 │   ├── bootstrap.php     # SQLite schema & config cache compiler
 │   ├── index.php         # Main dashboard (host priority, rules, ping tests)
 │   └── login.php         # Admin authentication
+├── assets/               # Brand assets, logos, and architecture diagrams
 ├── data/
 │   ├── .htaccess         # Protects database from direct public browser download
 │   └── .gitkeep
