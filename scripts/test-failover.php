@@ -4,7 +4,7 @@
  * Run with: php scripts/test-failover.php
  */
 
-require_once __DIR__ . '/../admin/bootstrap.php';
+require_once __DIR__ . '/../anyorigin/bootstrap.php';
 
 echo "=== AnyOrigin Self-Hosted Verification Suite ===\n\n";
 

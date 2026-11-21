@@ -92,7 +92,7 @@ AnyOrigin requires PHP 8.1+ with the `curl` and `pdo_sqlite` extensions (standar
    ```bash
    git clone https://github.com/themubiin/AnyOrigin.git .
    ```
-2. Navigate to `https://yourdomain.com/admin` in your browser.
+2. Navigate to `https://yourdomain.com/anyorigin` in your browser.
 3. Log in with the default password:
    ```
    admin123
@@ -149,11 +149,11 @@ All origin configurations and failover settings are stored locally in `data/anyo
 ## Repository Structure
 
 ```
-├── .htaccess             # Directs visitors to index.php and admin requests to /admin
+├── .htaccess             # Directs visitors to index.php and console requests to /anyorigin
 ├── index.php             # Fast-path ingress proxy (< 1ms overhead)
-├── admin/
+├── anyorigin/            # Management console
 │   ├── bootstrap.php     # SQLite initialization and cache sync
-│   ├── index.php         # Management console
+│   ├── index.php         # Main dashboard
 │   └── login.php         # Console authentication
 ├── assets/               # Visual assets and diagrams
 ├── data/

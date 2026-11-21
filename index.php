@@ -6,17 +6,17 @@ declare(strict_types=1);
  * AnyOrigin - Ingress Router & Failover Proxy
  */
 
-// Pass admin requests to the management panel
+// Pass console requests to the management panel
 $request_uri = $_SERVER['REQUEST_URI'] ?? '/';
-if (str_starts_with($request_uri, '/admin')) {
-    require __DIR__ . '/admin/index.php';
+if (str_starts_with($request_uri, '/anyorigin')) {
+    require __DIR__ . '/anyorigin/index.php';
     exit;
 }
 
 // Load cached routing table
 $config_file = __DIR__ . '/data/config.json';
 if (!file_exists($config_file)) {
-    require_once __DIR__ . '/admin/bootstrap.php';
+    require_once __DIR__ . '/anyorigin/bootstrap.php';
     getDb();
 }
 
@@ -27,7 +27,7 @@ $rules = $config['rules'] ?? [];
 
 if (empty($origins)) {
     http_response_code(503);
-    echo "<h1>503 Service Unavailable</h1><p>No upstream origins configured. Visit <a href='/admin'>/admin</a> to configure hosts.</p>";
+    echo "<h1>503 Service Unavailable</h1><p>No upstream origins configured. Visit <a href='/anyorigin'>/anyorigin</a> to configure hosts.</p>";
     exit;
 }
 
