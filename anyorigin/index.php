@@ -8,8 +8,16 @@ $pdo = getDb();
 
 // Handle AJAX & API actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawInput = file_get_contents('php://input');
+    if (!empty($rawInput) && isset($_SERVER['CONTENT_TYPE']) && str_contains($_SERVER['CONTENT_TYPE'], 'application/json')) {
+        $json = json_decode($rawInput, true);
+        if (is_array($json)) {
+            $_POST = array_merge($_POST, $json);
+        }
+    }
+
     $action = $_POST['action'] ?? '';
-    $isAjax = !empty($_POST['ajax']) || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'));
+    $isAjax = !empty($_POST['ajax']) || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json')) || (isset($_SERVER['CONTENT_TYPE']) && str_contains($_SERVER['CONTENT_TYPE'], 'application/json'));
 
     $respond = function(bool $success, string $message, array $extra = []) use ($isAjax) {
         if ($isAjax) {
@@ -270,6 +278,9 @@ $configSize = file_exists($configFile) ? round(filesize($configFile) / 1024, 1) 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AnyOrigin - Edge Failover Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;750;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#f8fafc;--sf:#ffffff;--s2:#f1f5f9;--bd:#e2e8f0;--bd-h:#cbd5e1;
@@ -523,16 +534,17 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15)}
 .global-tooltip.show{opacity:1;transform:translateY(0)}
 
 .alert-strip{
-  padding:12px 18px;background:var(--ws);border:1px solid var(--wa);border-radius:14px;
-  color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px;
+  padding:12px 18px;background:var(--ws);border:1px solid rgba(245,158,11,0.35);border-radius:14px;
+  color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;
+  box-shadow:0 1px 3px rgba(245,158,11,0.06);
 }
 .env-table{width:100%;border-collapse:collapse;font-size:12.5px}.env-table td{padding:10px 0;border-bottom:1px solid var(--bd)}.env-table td:last-child{text-align:right}
 
 dialog{
   border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:20px;
-  padding:24px;width:min(92vw,420px);box-shadow:0 30px 80px -20px rgba(0,0,0,.45);margin:auto;
+  padding:24px;width:min(92vw,440px);box-shadow:0 30px 80px -15px rgba(0,0,0,.4);margin:auto;
 }
-dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(6px)}
+dialog::backdrop{background:rgba(10,12,20,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 dialog h3{font-size:17px;margin-bottom:14px;font-weight:750}
 .f{display:grid;gap:6px;margin-bottom:14px}.f label{font-size:12.5px;font-weight:650;color:var(--mu)}
 .f input{height:42px;border-radius:10px;border:1px solid var(--bd);background:var(--s2);color:var(--tx);padding:0 12px;font:inherit;outline:0;transition:all .15s ease}
@@ -540,11 +552,17 @@ dialog h3{font-size:17px;margin-bottom:14px;font-weight:750}
 .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
 
 .toast{
-  position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translate(-50%,30px);
-  background:var(--tx);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:600;font-size:13px;
-  opacity:0;pointer-events:none;transition:all .25s cubic-bezier(0.16,1,0.3,1);z-index:50;box-shadow:0 10px 30px rgba(0,0,0,.25);
+  position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translate(-50%,20px) scale(0.96);
+  background:rgba(15, 23, 42, 0.94);color:#ffffff;
+  padding:10px 20px;border-radius:99px;font-weight:600;font-size:13px;letter-spacing:-0.1px;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,0.12);
+  opacity:0;pointer-events:none;
+  transition:all .22s cubic-bezier(0.16,1,0.3,1);
+  z-index:999;box-shadow:0 12px 32px -4px rgba(0,0,0,.35);
+  display:inline-flex;align-items:center;gap:8px;
 }
-.toast.s{opacity:1;transform:translate(-50%,0)}
+.toast.s{opacity:1;transform:translate(-50%,0) scale(1)}
 
 .moon{display:none}[data-theme=dark] .moon{display:block}[data-theme=dark] .sun{display:none}
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]) .moon{display:block}:root:not([data-theme=light]) .sun{display:none}}
