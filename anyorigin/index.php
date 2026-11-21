@@ -149,9 +149,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ch = curl_init($origin['url']);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 3,
+                CURLOPT_TIMEOUT => 4,
+                CURLOPT_CONNECTTIMEOUT => 3,
                 CURLOPT_NOBODY => true,
                 CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS => 2,
             ]);
             if (!empty($origin['host_header_override'])) {
                 curl_setopt($ch, CURLOPT_HTTPHEADER, ["Host: " . $origin['host_header_override']]);
@@ -159,16 +162,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $start = microtime(true);
             curl_exec($ch);
             $latency = round((microtime(true) - $start) * 1000);
-            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $err = curl_error($ch);
             curl_close($ch);
 
-            $status = ($code > 0 && $code < 500 && $code !== 402 && $code !== 429) ? 'healthy' : 'down';
             $now = date('Y-m-d H:i:s');
-            $pdo->prepare("UPDATE origins SET latency_ms = ?, status = ?, last_checked_at = ? WHERE id = ?")->execute([$latency, $status, $now, $id]);
-            syncConfigCache($pdo);
+            if ($err || $code === 0) {
+                // Connection or DNS failed completely
+                $status = 'down';
+                $pdo->prepare("UPDATE origins SET latency_ms = 0, status = 'down', last_checked_at = ? WHERE id = ?")->execute([$now, $id]);
+                syncConfigCache($pdo);
 
-            $respond(true, "{$origin['name']}: HTTP {$code} ({$latency}ms)", ['latency' => $latency, 'status' => $status, 'code' => $code]);
+                $reason = 'Unreachable';
+                if ($err) {
+                    if (str_contains($err, 'Could not resolve host')) {
+                        $reason = 'DNS failed (Domain does not exist)';
+                    } elseif (str_contains($err, 'timed out') || str_contains($err, 'Connection timed out')) {
+                        $reason = 'Connection timed out';
+                    } elseif (str_contains($err, 'Connection refused')) {
+                        $reason = 'Connection refused';
+                    } else {
+                        $reason = $err;
+                    }
+                }
+                $respond(false, "{$origin['name']}: {$reason} (HTTP {$code})", ['latency' => 0, 'status' => 'down', 'code' => $code]);
+            } else {
+                $isHealthy = ($code >= 200 && $code < 400);
+                $status = $isHealthy ? 'healthy' : 'down';
+                $pdo->prepare("UPDATE origins SET latency_ms = ?, status = ?, last_checked_at = ? WHERE id = ?")->execute([$latency, $status, $now, $id]);
+                syncConfigCache($pdo);
+
+                $msg = $isHealthy 
+                    ? "{$origin['name']}: Online · HTTP {$code} ({$latency}ms)"
+                    : "{$origin['name']}: HTTP {$code} ({$latency}ms)";
+                $respond($isHealthy, $msg, ['latency' => $latency, 'status' => $status, 'code' => $code]);
+            }
         }
         $respond(false, "Origin not found");
     }
@@ -224,11 +252,10 @@ $originsJson = array_map(function($o, $idx) use ($palette) {
         'n' => $o['name'],
         'u' => $o['url'],
         'h' => $o['host_header_override'] ?? '',
-        'ms' => (int)($o['latency_ms'] ?: 45),
+        'ms' => (int)($o['latency_ms'] ?? 0),
         'ok' => ($o['status'] === 'healthy') ? 1 : 0,
         'on' => (int)$o['is_active'],
         'c' => $palette[$idx % count($palette)],
-        'w' => 1000 * max(1, 6 - $idx),
     ];
 }, $origins, array_keys($origins));
 
@@ -860,20 +887,37 @@ function render(){
  $('#sc').innerHTML=codes.map(c=>`<div class="sr"><div>${c[0]}<span class="num">${F(Math.round(tot*c[1]))} · ${(c[1]*100).toFixed(1)}%</span></div><div class="tr"><i style="width:${Math.max(2,c[1]*100)}%;background:${c[2]}"></i></div></div>`).join('');
 
  // Full Origins List
- $('#list').innerHTML=O.map((o,i)=>`<div class="card o ${o.on?'':'off'}"><div class="rank">${i+1}</div>
- <div class="om"><div class="on"><span class="dot ${o.ok?'':'d'}"></span>${o.n}${i==0?'<span class="tag">Primary</span>':''}</div><div class="ou mono">${o.u}</div><div class="tr"><i style="width:${Math.round(T[i]/tot*100)}%;background:${o.c}"></i></div></div>
- <div class="met"><b class="num">${F(T[i])}</b><span>${Math.round(T[i]/tot*100)}% traffic</span></div>
- <div class="oa"><span class="ms mono num">${o.ms} ms</span>
+ $('#list').innerHTML=O.map((o,i)=>{
+   const isOnline = o.ok && o.ms > 0;
+   const msBadge = isOnline 
+     ? `<span class="ms mono num">${o.ms} ms</span>` 
+     : `<span class="ms mono num" style="color:var(--er);background:var(--es);border-color:transparent">Down</span>`;
+   const trafficInfo = (i === 0 && o.on)
+     ? `<b class="num" style="color:var(--ok)">Active</b><span>100% traffic</span>`
+     : `<b class="num" style="color:var(--mu)">Standby</b><span>${o.on ? 'Failover target' : 'Disabled'}</span>`;
+   const barWidth = (i === 0 && o.on) ? 100 : 0;
+
+   return `<div class="card o ${o.on?'':'off'}"><div class="rank">${i+1}</div>
+ <div class="om"><div class="on"><span class="dot ${isOnline?'':'d'}"></span>${o.n}${i==0?'<span class="tag">Primary</span>':''}</div><div class="ou mono">${o.u}</div><div class="tr"><i style="width:${barWidth}%;background:${o.c}"></i></div></div>
+ <div class="met">${trafficInfo}</div>
+ <div class="oa">${msBadge}
  <div class="mv"><button data-m="${i},-1" aria-label="Up">${ic('up')}</button><button data-m="${i},1" aria-label="Down">${ic('dn')}</button></div>
  <button class="ib sm" data-t="${i}" aria-label="Test">${ic('bolt')}</button><button class="ib sm del" data-d="${i}" aria-label="Delete">${ic('trash')}</button>
- <button class="sw ${o.on?'on':''}" data-s="${i}" aria-label="Toggle"></button></div></div>`).join('');
+ <button class="sw ${o.on?'on':''}" data-s="${i}" aria-label="Toggle"></button></div></div>`;
+ }).join('');
 
  // Quick Origins in Overview
- $('#quickOrigins').innerHTML=O.slice(0,3).map((o,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)">
-  <span class="dot ${o.ok?'':'d'}"></span>
+ $('#quickOrigins').innerHTML=O.slice(0,3).map((o,i)=>{
+   const isOnline = o.ok && o.ms > 0;
+   const msBadge = isOnline 
+     ? `<span class="mono num" style="font-size:12px;font-weight:600">${o.ms} ms</span>` 
+     : `<span class="mono num" style="font-size:11px;font-weight:700;color:var(--er)">Down</span>`;
+   return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)">
+  <span class="dot ${isOnline?'':'d'}"></span>
   <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${o.n} ${i==0?'<span class="tag">Primary</span>':''}</div><div class="ou mono" style="font-size:11.5px">${o.u}</div></div>
-  <span class="mono num" style="font-size:12px;font-weight:600">${o.ms} ms</span>
- </div>`).join('');
+  ${msBadge}
+ </div>`;
+ }).join('');
 
  // Incident Logs
  const filteredEV = activeLogFilter === 'all' ? EV : EV.filter(e => e.code.startsWith(activeLogFilter));
@@ -1002,8 +1046,8 @@ $('#list').onclick=async e=>{
    const o=O[b.dataset.t];
    toast('Testing ' + o.n + '...');
    const res = await postAction('ping_host', { id: o.id });
-   if (res.latency) o.ms = res.latency;
-   if (res.status) o.ok = (res.status === 'healthy') ? 1 : 0;
+   o.ms = (res && res.latency) ? res.latency : 0;
+   o.ok = (res && res.status === 'healthy') ? 1 : 0;
    render();
    toast(res.message);
  }
@@ -1099,7 +1143,7 @@ $('#frm').onsubmit=async e=>{
  toast('Adding host...');
  const res = await postAction('add_origin', { name, url, host_header: host });
  if (res.success) {
-   O.push({ id: res.id, n: name, u: url, h: host, ms: 45, ok: 1, on: 1, c: '#34d399', w: 1000 });
+   O.push({ id: res.id, n: name, u: url, h: host, ms: 0, ok: 0, on: 1, c: '#38bdf8' });
    $('#frm').reset();
    dlg.close();
    render();
