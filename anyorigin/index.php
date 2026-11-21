@@ -101,13 +101,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $trigger_429 = !empty($_POST['trigger_429']) ? 1 : 0;
         $trigger_5xx = !empty($_POST['trigger_5xx']) ? 1 : 0;
         $timeout_ms = max(500, (int)($_POST['timeout_ms'] ?? 2500));
+        $max_retries = max(1, (int)($_POST['max_retries'] ?? 2));
         $now = date('Y-m-d H:i:s');
 
-        $stmt = $pdo->prepare("UPDATE failover_rules SET trigger_402 = ?, trigger_429 = ?, trigger_5xx = ?, latency_threshold_ms = ?, updated_at = ? WHERE site_id = 'default-site'");
-        $stmt->execute([$trigger_402, $trigger_429, $trigger_5xx, $timeout_ms, $now]);
+        $stmt = $pdo->prepare("UPDATE failover_rules SET trigger_402 = ?, trigger_429 = ?, trigger_5xx = ?, latency_threshold_ms = ?, max_retries = ?, updated_at = ? WHERE site_id = 'default-site'");
+        $stmt->execute([$trigger_402, $trigger_429, $trigger_5xx, $timeout_ms, $max_retries, $now]);
+
+        if (isset($_POST['routing_strategy'])) {
+            setAdminSetting($pdo, 'routing_strategy', $_POST['routing_strategy'] === 'round_robin' ? 'round_robin' : 'priority');
+        }
+        if (isset($_POST['safe_post_only'])) {
+            setAdminSetting($pdo, 'safe_post_only', !empty($_POST['safe_post_only']) ? '1' : '0');
+        }
+        if (isset($_POST['forward_client_ip'])) {
+            setAdminSetting($pdo, 'forward_client_ip', !empty($_POST['forward_client_ip']) ? '1' : '0');
+        }
+        if (isset($_POST['rewrite_locations'])) {
+            setAdminSetting($pdo, 'rewrite_locations', !empty($_POST['rewrite_locations']) ? '1' : '0');
+        }
+        if (isset($_POST['rewrite_cookies'])) {
+            setAdminSetting($pdo, 'rewrite_cookies', !empty($_POST['rewrite_cookies']) ? '1' : '0');
+        }
+        if (isset($_POST['health_check_interval'])) {
+            setAdminSetting($pdo, 'health_check_interval', in_array($_POST['health_check_interval'], ['30s', '1m', '5m'], true) ? $_POST['health_check_interval'] : '1m');
+        }
 
         syncConfigCache($pdo);
-        $respond(true, "Failover rules saved");
+        $respond(true, "All settings & rules saved successfully");
+    }
+
+    if ($action === 'purge_cache') {
+        syncConfigCache($pdo);
+        $respond(true, "Config cache purged and recompiled (<1ms)");
+    }
+
+    if ($action === 'reset_lockouts') {
+        $pdo->exec("DELETE FROM login_attempts");
+        $respond(true, "Login brute-force lockouts cleared");
     }
 
     if ($action === 'ping_host') {
@@ -175,7 +205,15 @@ $rules = $pdo->query("SELECT * FROM failover_rules LIMIT 1")->fetch() ?: [
     'trigger_429' => 1,
     'trigger_5xx' => 1,
     'latency_threshold_ms' => 2500,
+    'max_retries' => 2,
 ];
+
+$routing_strategy = getAdminSetting($pdo, 'routing_strategy', 'priority');
+$safe_post_only = getAdminSetting($pdo, 'safe_post_only', '1') === '1';
+$forward_client_ip = getAdminSetting($pdo, 'forward_client_ip', '1') === '1';
+$rewrite_locations = getAdminSetting($pdo, 'rewrite_locations', '1') === '1';
+$rewrite_cookies = getAdminSetting($pdo, 'rewrite_cookies', '1') === '1';
+$health_check_interval = getAdminSetting($pdo, 'health_check_interval', '1m');
 
 // Color palette for chart and origins
 $palette = ['#38bdf8', '#34d399', '#6366f1', '#fbbf24', '#fb7185', '#a855f7'];
@@ -278,8 +316,13 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
 .f input:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--as)}.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translate(-50%,30px);background:var(--tx);color:var(--bg);padding:11px 18px;border-radius:12px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:50}.toast.s{opacity:1;transform:translate(-50%,0)}
 .three{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+.settings-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.i-btn{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--s2);border:1px solid var(--bd);color:var(--mu);font-size:11px;font-weight:750;line-height:1;cursor:pointer;transition:.15s;margin-left:6px;vertical-align:middle;flex-shrink:0;user-select:none}
+.i-btn:hover,.i-btn:focus{background:var(--as);border-color:var(--ac);color:var(--ac)}
+.global-tooltip{position:fixed;z-index:9999;background:var(--tx);color:var(--bg);padding:7px 11px;border-radius:9px;font-size:12px;font-weight:500;line-height:1.35;max-width:270px;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.global-tooltip.show{opacity:1;transform:translateY(0)}
 .alert-strip{padding:12px 18px;background:var(--ws);border:1px solid var(--wa);border-radius:14px;color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px}
-@media(max-width:820px){.bar,main{padding-left:14px;padding-right:14px}.two,.three{grid-template-columns:1fr}.kp{grid-template-columns:1fr 1fr;gap:8px}.k b{font-size:22px}.hero .btn{width:100%}
+@media(max-width:820px){.bar,main{padding-left:14px;padding-right:14px}.two,.three,.settings-grid{grid-template-columns:1fr}.kp{grid-template-columns:1fr 1fr;gap:8px}.k b{font-size:22px}.hero .btn{width:100%}
 .oa{width:100%;margin-left:44px;justify-content:flex-start}.oa .sw{margin-left:auto;margin-right:44px}.ou{max-width:66vw}.met{text-align:left;min-width:64px}.om{min-width:150px}}
 </style>
 </head>
@@ -339,18 +382,157 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
  <div class="sec"><h2>Origins</h2><span class="lbl" id="cnt"></span></div>
  <section class="list" id="list"></section>
 
- <section class="three">
-  <div class="card pad"><div class="hd"><h2>Failover log</h2><span class="lbl">Recent</span></div><div class="ev" id="ev"></div></div>
+ <div class="sec" style="margin-top:10px">
+  <h2>Settings & Gateway Rules</h2>
+  <span class="lbl">Failover Triggers · Routing · Security</span>
+ </div>
+
+ <section class="settings-grid">
+  <!-- Card 1: Failover Triggers -->
   <div class="card pad">
-   <h2 style="margin-bottom:4px">Rules</h2>
-   <div class="rr"><span>402<small>billing cap</small></span><button class="sw <?= !empty($rules['trigger_402']) ? 'on' : '' ?>" id="sw402" aria-label="402"></button></div>
-   <div class="rr"><span>429<small>rate limit</small></span><button class="sw <?= !empty($rules['trigger_429']) ? 'on' : '' ?>" id="sw429" aria-label="429"></button></div>
-   <div class="rr"><span>5xx<small>server error</small></span><button class="sw <?= !empty($rules['trigger_5xx']) ? 'on' : '' ?>" id="sw5xx" aria-label="5xx"></button></div>
-   <div class="rg"><div><span>Timeout</span><span class="mono" id="tv" style="color:var(--ac)"><?= $rules['latency_threshold_ms'] ?? 2500 ?> ms</span></div><input type="range" id="tm" min="500" max="6000" step="250" value="<?= $rules['latency_threshold_ms'] ?? 2500 ?>"></div>
-   <div class="rg"><div><span>Retries</span><div class="seg" id="rty"><button>1</button><button class="a">2</button><button>3</button></div></div></div>
-   <div class="rg"><div><span>Health check</span><div class="seg" id="hc"><button>30s</button><button class="a">1m</button><button>5m</button></div></div></div>
-   <button class="btn" id="saveRules" style="width:100%;margin-top:6px">Save rules</button>
+   <div class="hd">
+    <div style="display:flex;align-items:center">
+     <h2 style="margin:0">Failover Triggers</h2>
+     <button type="button" class="i-btn" data-tip="Choose which HTTP error codes cause AnyOrigin to automatically reroute visitor traffic to the next standby origin.">i</button>
+    </div>
+    <span class="tag">Auto-Recovery</span>
+   </div>
+   <div class="rr">
+    <span>402 Payment Required<small>billing cap / quota cutoff</small><button type="button" class="i-btn" data-tip="Trigger instant failover if provider runs out of free tier bandwidth or hits billing limits (e.g., Vercel / Netlify / Render spend limit).">i</button></span>
+    <button class="sw <?= !empty($rules['trigger_402']) ? 'on' : '' ?>" id="sw402" aria-label="402"></button>
+   </div>
+   <div class="rr">
+    <span>429 Too Many Requests<small>rate limit / throttling</small><button type="button" class="i-btn" data-tip="Switch to next provider if upstream server limits incoming requests or hits rate limits.">i</button></span>
+    <button class="sw <?= !empty($rules['trigger_429']) ? 'on' : '' ?>" id="sw429" aria-label="429"></button>
+   </div>
+   <div class="rr">
+    <span>5xx Server Errors<small>500, 502, 503, 504</small><button type="button" class="i-btn" data-tip="Reroute when origin crashes, throws fatal errors, or drops gateway connections.">i</button></span>
+    <button class="sw <?= !empty($rules['trigger_5xx']) ? 'on' : '' ?>" id="sw5xx" aria-label="5xx"></button>
+   </div>
+   <div class="rr">
+    <span>Safe POST/PUT Protection<small>idempotency shield</small><button type="button" class="i-btn" data-tip="Prevents duplicate database entries or double charges by only failing over idempotent requests (GET/HEAD) on 5xx errors.">i</button></span>
+    <button class="sw <?= $safe_post_only ? 'on' : '' ?>" id="swSafePost" aria-label="Safe POST"></button>
+   </div>
   </div>
+
+  <!-- Card 2: Traffic & Failover Limits -->
+  <div class="card pad">
+   <div class="hd">
+    <div style="display:flex;align-items:center">
+     <h2 style="margin:0">Traffic & Failover Limits</h2>
+     <button type="button" class="i-btn" data-tip="Controls traffic distribution, upstream latency timeout, and how many backup hops to attempt before giving up.">i</button>
+    </div>
+    <span class="tag">Policies</span>
+   </div>
+   
+   <div class="rg">
+    <div>
+     <span style="display:flex;align-items:center">Routing strategy<button type="button" class="i-btn" data-tip="Priority: 100% traffic goes to Rank #1, standby used only on failure. Round-Robin: balances load evenly across all active healthy origins.">i</button></span>
+     <div class="seg" id="segStrategy">
+      <button type="button" data-val="priority" class="<?= $routing_strategy === 'priority' ? 'a' : '' ?>">Priority</button>
+      <button type="button" data-val="round_robin" class="<?= $routing_strategy === 'round_robin' ? 'a' : '' ?>">Round-Robin</button>
+     </div>
+    </div>
+   </div>
+
+   <div class="rg">
+    <div>
+     <span style="display:flex;align-items:center">Request timeout<button type="button" class="i-btn" data-tip="Maximum time AnyOrigin waits for an upstream origin to respond before declaring it timed-out and failing over.">i</button></span>
+     <span class="mono" id="tv" style="color:var(--ac)"><?= $rules['latency_threshold_ms'] ?? 2500 ?> ms</span>
+    </div>
+    <input type="range" id="tm" min="500" max="6000" step="250" value="<?= $rules['latency_threshold_ms'] ?? 2500 ?>">
+   </div>
+
+   <div class="rg">
+    <div>
+     <span style="display:flex;align-items:center">Max retry hops<button type="button" class="i-btn" data-tip="Maximum number of standby servers to try before returning a service error to visitor.">i</button></span>
+     <div class="seg" id="rty">
+      <button type="button" data-val="1" class="<?= ($rules['max_retries'] ?? 2) == 1 ? 'a' : '' ?>">1</button>
+      <button type="button" data-val="2" class="<?= ($rules['max_retries'] ?? 2) == 2 ? 'a' : '' ?>">2</button>
+      <button type="button" data-val="3" class="<?= ($rules['max_retries'] ?? 2) == 3 ? 'a' : '' ?>">3</button>
+      <button type="button" data-val="5" class="<?= ($rules['max_retries'] ?? 2) >= 4 ? 'a' : '' ?>">All</button>
+     </div>
+    </div>
+   </div>
+
+   <div class="rg">
+    <div>
+     <span style="display:flex;align-items:center">Health check frequency<button type="button" class="i-btn" data-tip="How frequently background health checks ping inactive or downed origins to verify automatic recovery.">i</button></span>
+     <div class="seg" id="hc">
+      <button type="button" data-val="30s" class="<?= $health_check_interval === '30s' ? 'a' : '' ?>">30s</button>
+      <button type="button" data-val="1m" class="<?= $health_check_interval === '1m' ? 'a' : '' ?>">1m</button>
+      <button type="button" data-val="5m" class="<?= $health_check_interval === '5m' ? 'a' : '' ?>">5m</button>
+     </div>
+    </div>
+   </div>
+  </div>
+
+  <!-- Card 3: Headers & Gateway Rewriting -->
+  <div class="card pad">
+   <div class="hd">
+    <div style="display:flex;align-items:center">
+     <h2 style="margin:0">Proxy Headers & Cookies</h2>
+     <button type="button" class="i-btn" data-tip="Manage HTTP request/response headers so backend apps see real client IPs, hosts, and valid auth cookies.">i</button>
+    </div>
+    <span class="tag">Gateway</span>
+   </div>
+   <div class="rr">
+    <span>Forward Client IP<small>X-Forwarded-For header</small><button type="button" class="i-btn" data-tip="Passes the real visitor IP address to your backend applications instead of the proxy server IP.">i</button></span>
+    <button class="sw <?= $forward_client_ip ? 'on' : '' ?>" id="swClientIp" aria-label="Forward IP"></button>
+   </div>
+   <div class="rr">
+    <span>Preserve Host Domain<small>X-Forwarded-Host header</small><button type="button" class="i-btn" data-tip="Passes original domain visited by client to multi-domain backend applications.">i</button></span>
+    <button class="sw on" id="swHostHdr" aria-label="Preserve Host" disabled style="opacity:.65"></button>
+   </div>
+   <div class="rr">
+    <span>Rewrite Redirects<small>Location response header</small><button type="button" class="i-btn" data-tip="Rewrites backend internal redirect URLs to your custom public domain so visitors never see internal hostnames.">i</button></span>
+    <button class="sw <?= $rewrite_locations ? 'on' : '' ?>" id="swRewrLoc" aria-label="Rewrite Location"></button>
+   </div>
+   <div class="rr">
+    <span>Normalize Cookies<small>Set-Cookie Domain</small><button type="button" class="i-btn" data-tip="Automatically rewrites backend cookie domain attributes to ensure user login sessions work seamlessly on your domain.">i</button></span>
+    <button class="sw <?= $rewrite_cookies ? 'on' : '' ?>" id="swRewrCk" aria-label="Rewrite Cookie"></button>
+   </div>
+  </div>
+
+  <!-- Card 4: System Tools & Actions -->
+  <div class="card pad" style="display:flex;flex-direction:column;justify-content:space-between">
+   <div>
+    <div class="hd">
+     <div style="display:flex;align-items:center">
+      <h2 style="margin:0">System & Maintenance</h2>
+      <button type="button" class="i-btn" data-tip="Perform immediate cache purges, security lockout flushes, and save all updated policies.">i</button>
+     </div>
+     <span class="tag">Fast-Path</span>
+    </div>
+
+    <div style="display:grid;gap:12px;margin:12px 0">
+     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div>
+       <strong style="font-size:13px">Purge Routing Cache</strong><button type="button" class="i-btn" data-tip="Forces AnyOrigin proxy to flush and regenerate the zero-overhead data/config.json cache instantly.">i</button>
+       <small style="display:block;color:var(--mu)">Sync SQLite table to JSON (&lt; 1ms)</small>
+      </div>
+      <button type="button" class="btn g" id="btnPurge" style="height:34px;padding:0 12px;font-size:12px">Purge cache</button>
+     </div>
+
+     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--bd)">
+      <div>
+       <strong style="font-size:13px">Reset Login Lockouts</strong><button type="button" class="i-btn" data-tip="Clears temporary IP blocks resulting from 5 or more consecutive failed login attempts.">i</button>
+       <small style="display:block;color:var(--mu)">Unblock rate-limited IP addresses</small>
+      </div>
+      <button type="button" class="btn g" id="btnResetLock" style="height:34px;padding:0 12px;font-size:12px">Clear blocks</button>
+     </div>
+    </div>
+   </div>
+
+   <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
+    <button type="button" class="btn" id="saveRules" style="width:100%"><svg class="i"><use href="#check"/></svg>Save all settings</button>
+   </div>
+  </div>
+ </section>
+
+ <div class="sec" style="margin-top:12px"><h2>Failover & Incident Log</h2><span class="lbl">Recent Traffic Reroutes</span></div>
+ <section class="card pad">
+  <div class="ev" id="ev"></div>
  </section>
 </main>
 
@@ -501,8 +683,9 @@ function seg(id,fn){
 
 seg('#range',b=>{ri=+b.dataset.r;render()});
 seg('#tab',b=>{tb=+b.dataset.t;render()});
-seg("#hc");
-seg("#rty");
+seg('#segStrategy');
+seg('#rty');
+seg('#hc');
 
 $('#list').onclick=async e=>{
  const b=e.target.closest('button');
@@ -550,22 +733,80 @@ $('#list').onclick=async e=>{
  }
 };
 
-// Rules switches
-$('#sw402').onclick=function(){this.classList.toggle('on')};
-$('#sw429').onclick=function(){this.classList.toggle('on')};
-$('#sw5xx').onclick=function(){this.classList.toggle('on')};
+// Switches in settings grid
+$$('.settings-grid .sw:not([disabled])').forEach(sw => {
+  sw.onclick = function() { this.classList.toggle('on'); };
+});
 
 $('#tm').oninput=e=>$('#tv').textContent=e.target.value+' ms';
 
 $('#saveRules').onclick=async ()=>{
+ toast('Saving settings...');
  const res = await postAction('update_rules', {
    trigger_402: $('#sw402').classList.contains('on') ? 1 : 0,
    trigger_429: $('#sw429').classList.contains('on') ? 1 : 0,
    trigger_5xx: $('#sw5xx').classList.contains('on') ? 1 : 0,
+   safe_post_only: $('#swSafePost').classList.contains('on') ? 1 : 0,
+   routing_strategy: $('#segStrategy button.a')?.dataset.val || 'priority',
    timeout_ms: $('#tm').value,
+   max_retries: $('#rty button.a')?.dataset.val || 2,
+   health_check_interval: $('#hc button.a')?.dataset.val || '1m',
+   forward_client_ip: $('#swClientIp').classList.contains('on') ? 1 : 0,
+   rewrite_locations: $('#swRewrLoc').classList.contains('on') ? 1 : 0,
+   rewrite_cookies: $('#swRewrCk').classList.contains('on') ? 1 : 0,
  });
  toast(res.message);
 };
+
+$('#btnPurge').onclick=async ()=>{
+ toast('Purging cache...');
+ const res = await postAction('purge_cache');
+ toast(res.message);
+};
+
+$('#btnResetLock').onclick=async ()=>{
+ toast('Resetting lockouts...');
+ const res = await postAction('reset_lockouts');
+ toast(res.message);
+};
+
+// Global interactive tooltip system for i-buttons
+const tipEl = document.createElement('div');
+tipEl.className = 'global-tooltip';
+document.body.appendChild(tipEl);
+
+function positionTip(btn) {
+  tipEl.textContent = btn.getAttribute('data-tip');
+  tipEl.classList.add('show');
+  const rect = btn.getBoundingClientRect();
+  const tipRect = tipEl.getBoundingClientRect();
+  let left = rect.left + (rect.width / 2) - (tipRect.width / 2);
+  let top = rect.top - tipRect.height - 8;
+  if (left < 10) left = 10;
+  if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
+  if (top < 10) top = rect.bottom + 8;
+  tipEl.style.left = left + 'px';
+  tipEl.style.top = top + 'px';
+}
+
+document.addEventListener('mouseover', e => {
+  const btn = e.target.closest('[data-tip]');
+  if (btn) positionTip(btn);
+});
+
+document.addEventListener('mouseout', e => {
+  if (e.target.closest('[data-tip]')) tipEl.classList.remove('show');
+});
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-tip]');
+  if (btn) {
+    e.stopPropagation();
+    positionTip(btn);
+  } else {
+    tipEl.classList.remove('show');
+  }
+});
 
 // Add Origin Modal
 const dlg=$('#dlg');

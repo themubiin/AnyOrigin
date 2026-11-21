@@ -101,6 +101,19 @@ function getDb(): PDO {
     return $pdo;
 }
 
+function getAdminSetting(PDO $pdo, string $key, string $default = ''): string {
+    $stmt = $pdo->prepare("SELECT value FROM admin_settings WHERE key = ?");
+    $stmt->execute([$key]);
+    $val = $stmt->fetchColumn();
+    return $val !== false ? (string)$val : $default;
+}
+
+function setAdminSetting(PDO $pdo, string $key, string $value): void {
+    $now = date('Y-m-d H:i:s');
+    $pdo->prepare("INSERT OR REPLACE INTO admin_settings (key, value, updated_at) VALUES (?, ?, ?)")
+        ->execute([$key, $value, $now]);
+}
+
 function syncConfigCache(?PDO $pdo = null): array {
     if (!$pdo) {
         $pdo = getDb();
@@ -112,7 +125,15 @@ function syncConfigCache(?PDO $pdo = null): array {
         'trigger_429' => 1,
         'trigger_5xx' => 1,
         'latency_threshold_ms' => 3000,
+        'max_retries' => 2,
     ];
+
+    $routing_strategy = getAdminSetting($pdo, 'routing_strategy', 'priority');
+    $safe_post_only = getAdminSetting($pdo, 'safe_post_only', '1');
+    $forward_client_ip = getAdminSetting($pdo, 'forward_client_ip', '1');
+    $rewrite_locations = getAdminSetting($pdo, 'rewrite_locations', '1');
+    $rewrite_cookies = getAdminSetting($pdo, 'rewrite_cookies', '1');
+    $health_check_interval = getAdminSetting($pdo, 'health_check_interval', '1m');
 
     $config = [
         'updated_at' => time(),
@@ -121,7 +142,13 @@ function syncConfigCache(?PDO $pdo = null): array {
             'trigger_429' => !empty($rules['trigger_429']),
             'trigger_5xx' => !empty($rules['trigger_5xx']),
             'timeout_ms' => (int)($rules['latency_threshold_ms'] ?? 3000),
-            'safe_post_only' => true,
+            'max_retries' => (int)($rules['max_retries'] ?? 2),
+            'routing_strategy' => $routing_strategy,
+            'safe_post_only' => $safe_post_only === '1',
+            'forward_client_ip' => $forward_client_ip === '1',
+            'rewrite_locations' => $rewrite_locations === '1',
+            'rewrite_cookies' => $rewrite_cookies === '1',
+            'health_check_interval' => $health_check_interval,
         ],
         'origins' => array_map(function($o) {
             $host = !empty($o['host_header_override']) ? $o['host_header_override'] : parse_url($o['url'], PHP_URL_HOST);

@@ -53,6 +53,20 @@ $client_proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'ht
 
 $is_safe_method = in_array($request_method, ['GET', 'HEAD', 'OPTIONS'], true);
 $timeout_seconds = max(1, (int)ceil(($rules['timeout_ms'] ?? 3000) / 1000));
+$max_retries = max(1, (int)($rules['max_retries'] ?? count($origins)));
+$routing_strategy = $rules['routing_strategy'] ?? 'priority';
+$safe_post_only = !isset($rules['safe_post_only']) || (bool)$rules['safe_post_only'];
+$forward_client_ip = !isset($rules['forward_client_ip']) || (bool)$rules['forward_client_ip'];
+$rewrite_locations = !isset($rules['rewrite_locations']) || (bool)$rules['rewrite_locations'];
+$rewrite_cookies = !isset($rules['rewrite_cookies']) || (bool)$rules['rewrite_cookies'];
+
+// Round-robin load balancing rotation
+if ($routing_strategy === 'round_robin' && count($origins) > 1) {
+    $rotation_index = (int)(microtime(true) * 1000) % count($origins);
+    if ($rotation_index > 0) {
+        $origins = array_merge(array_slice($origins, $rotation_index), array_slice($origins, 0, $rotation_index));
+    }
+}
 
 // Capture request body for POST/PUT/PATCH
 $incoming_headers = function_exists('getallheaders') ? getallheaders() : [];
@@ -81,7 +95,9 @@ foreach ($origins as $index => $origin) {
     }
     $forward_headers[] = "X-Forwarded-Host: " . $client_host;
     $forward_headers[] = "X-Forwarded-Proto: " . $client_proto;
-    $forward_headers[] = "X-Forwarded-For: " . ($_SERVER['REMOTE_ADDR'] ?? '');
+    if ($forward_client_ip) {
+        $forward_headers[] = "X-Forwarded-For: " . ($_SERVER['REMOTE_ADDR'] ?? '');
+    }
     $forward_headers[] = "X-AnyOrigin-Tier: " . ($index + 1);
 
     curl_setopt_array($ch, [
@@ -109,8 +125,8 @@ foreach ($origins as $index => $origin) {
     $is_429 = (!empty($rules['trigger_429']) && $http_code === 429);
     $is_5xx = (!empty($rules['trigger_5xx']) && $http_code >= 500);
 
-    // Idempotency check: don't retry non-safe methods (POST/PUT) on 5xx or connection drops
-    $can_safely_retry = $is_safe_method || $is_402 || $is_429;
+    // Idempotency check: don't retry non-safe methods (POST/PUT) on 5xx if safe_post_only is active
+    $can_safely_retry = $is_safe_method || $is_402 || $is_429 || (!$safe_post_only && $is_5xx);
 
     $should_failover = false;
     if ($curl_error && $is_safe_method) {
@@ -119,7 +135,7 @@ foreach ($origins as $index => $origin) {
         $should_failover = true;
     }
 
-    if ($should_failover && $index < count($origins) - 1) {
+    if ($should_failover && $index < count($origins) - 1 && count($failed_origins) < $max_retries) {
         $failed_origins[] = $origin['name'];
         continue;
     }
@@ -139,7 +155,7 @@ foreach ($origins as $index => $origin) {
         if (str_starts_with($lower_hdr, 'transfer-encoding:')) continue;
 
         // Rewrite Location header to keep visitor on main host
-        if (str_starts_with($lower_hdr, 'location:')) {
+        if ($rewrite_locations && str_starts_with($lower_hdr, 'location:')) {
             $parts = explode(':', $hdr, 2);
             $location_val = trim($parts[1] ?? '');
             $parsed_loc = parse_url($location_val);
@@ -151,7 +167,7 @@ foreach ($origins as $index => $origin) {
         }
 
         // Rewrite cookie domain
-        if (str_starts_with($lower_hdr, 'set-cookie:')) {
+        if ($rewrite_cookies && str_starts_with($lower_hdr, 'set-cookie:')) {
             $client_domain = explode(':', $client_host)[0];
             $rewritten_cookie = preg_replace('/Domain=[^;]+/i', 'Domain=' . $client_domain, $hdr);
             header($rewritten_cookie, false);
