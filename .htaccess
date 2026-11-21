@@ -1,0 +1,10 @@
+RewriteEngine On
+
+# Allow direct access to admin directory
+RewriteCond %{REQUEST_URI} ^/admin [NC]
+RewriteRule ^ - [L]
+
+# Route all public visitor traffic through the AnyOrigin Fast-Path Proxy Engine
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
