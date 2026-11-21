@@ -3,22 +3,38 @@ require_once __DIR__ . '/bootstrap.php';
 
 $pdo = getDb();
 $error = '';
+$client_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Check brute-force lock
+if (isRateLimited($client_ip)) {
+    $error = 'Too many failed login attempts. This IP is temporarily locked for 15 minutes.';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
     $hash = $pdo->query("SELECT value FROM admin_settings WHERE key = 'admin_password_hash'")->fetchColumn();
 
     if ($hash && password_verify($password, $hash)) {
+        // Successful login: reset attempts, regenerate session ID to prevent fixation
+        resetLoginAttempts($client_ip);
+        session_regenerate_id(true);
         $_SESSION['anyorigin_auth'] = true;
         header('Location: /anyorigin/index.php');
         exit;
     }
 
-    $error = 'Incorrect password.';
+    // Failed attempt: record attempt for rate limiting
+    recordFailedLogin($client_ip);
+    $error = 'Invalid credentials.';
 }
 
 if (isset($_GET['logout'])) {
-    unset($_SESSION['anyorigin_auth']);
+    $_SESSION = [];
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000,
+            $params["path"], $params["domain"],
+            $params["secure"], $params["httponly"]
+        );
+    }
     session_destroy();
     header('Location: /anyorigin/login.php');
     exit;
@@ -58,18 +74,18 @@ if (isset($_GET['logout'])) {
                     Password
                 </label>
                 <input type="password" name="password" required autofocus
-                       placeholder="Default: admin123"
+                       placeholder="••••••••"
                        class="w-full rounded-lg border border-slate-700 bg-slate-800/80 py-2 px-3 text-sm text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none">
             </div>
 
-            <button type="submit"
-                    class="w-full rounded-lg bg-sky-500 py-2 px-4 text-sm font-semibold text-slate-950 hover:bg-sky-400 transition-colors">
+            <button type="submit" <?= isRateLimited($client_ip) ? 'disabled' : '' ?>
+                    class="w-full rounded-lg bg-sky-500 py-2 px-4 text-sm font-semibold text-slate-950 hover:bg-sky-400 transition-colors disabled:opacity-40">
                 Sign In
             </button>
         </form>
 
         <div class="mt-6 border-t border-slate-800/80 pt-3 text-center">
-            <p class="text-[11px] text-slate-500">v1.0.0 &bull; Self-hosted</p>
+            <p class="text-[11px] text-slate-500">v1.0.0 &bull; Protected Access</p>
         </div>
     </div>
 

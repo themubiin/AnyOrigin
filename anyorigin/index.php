@@ -120,15 +120,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($err) $message .= " [{$err}]";
         }
     } elseif ($action === 'change_password') {
+        $currentPass = $_POST['current_password'] ?? '';
         $newPass = $_POST['new_password'] ?? '';
-        if (strlen($newPass) >= 6) {
-            $hash = password_hash($newPass, PASSWORD_DEFAULT);
-            $now = date('Y-m-d H:i:s');
-            $pdo->prepare("INSERT OR REPLACE INTO admin_settings (key, value, updated_at) VALUES ('admin_password_hash', ?, ?)")->execute([$hash, $now]);
-            $message = "Password updated.";
-        } else {
-            $message = "Password must be at least 6 characters.";
+        $confirmPass = $_POST['confirm_password'] ?? '';
+
+        $existingHash = $pdo->query("SELECT value FROM admin_settings WHERE key = 'admin_password_hash'")->fetchColumn();
+
+        // 1. Verify current password
+        if (!$existingHash || !password_verify($currentPass, $existingHash)) {
+            $message = "Current password is incorrect.";
             $messageType = 'error';
+        }
+        // 2. Validate new password length
+        elseif (strlen($newPass) < 8) {
+            $message = "New password must be at least 8 characters long.";
+            $messageType = 'error';
+        }
+        // 3. Confirm password match
+        elseif ($newPass !== $confirmPass) {
+            $message = "New password and confirmation do not match.";
+            $messageType = 'error';
+        } else {
+            // Irreversibly overwrite old password hash with secure Bcrypt
+            $newHash = password_hash($newPass, PASSWORD_DEFAULT);
+            $now = date('Y-m-d H:i:s');
+            $pdo->prepare("UPDATE admin_settings SET value = ?, updated_at = ? WHERE key = 'admin_password_hash'")
+                ->execute([$newHash, $now]);
+
+            session_regenerate_id(true);
+            $message = "Password updated successfully. Default password has been permanently erased.";
         }
     }
 }
@@ -142,6 +162,7 @@ $rules = $pdo->query("SELECT * FROM failover_rules LIMIT 1")->fetch() ?: [
 ];
 
 $primaryOrigin = $origins[0] ?? null;
+$usingDefaultPwd = isUsingDefaultPassword();
 ?>
 <!DOCTYPE html>
 <html lang="en" class="dark">
@@ -181,6 +202,19 @@ $primaryOrigin = $origins[0] ?? null;
     </header>
 
     <main class="flex-1 max-w-5xl w-full mx-auto p-6 space-y-6">
+
+        <?php if ($usingDefaultPwd): ?>
+            <div class="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs text-amber-300">
+                <div class="flex items-center gap-2.5">
+                    <i data-lucide="alert-triangle" class="h-4 w-4 shrink-0 text-amber-400"></i>
+                    <span><strong>Security Notice:</strong> You are currently using the default setup password. Please change it immediately to secure your console.</span>
+                </div>
+                <button onclick="document.getElementById('passwordModal').classList.remove('hidden')" 
+                        class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 font-semibold border border-amber-500/30 transition-colors">
+                    Change Now
+                </button>
+            </div>
+        <?php endif; ?>
 
         <?php if (!empty($message)): ?>
             <div class="p-3 rounded-lg border flex items-center justify-between <?= $messageType === 'error' ? 'bg-rose-500/10 border-rose-500/20 text-rose-300' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' ?> text-xs">
@@ -370,19 +404,31 @@ $primaryOrigin = $origins[0] ?? null;
         </div>
     </div>
 
+    <!-- Enhanced Secure Password Change Modal -->
     <div id="passwordModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
         <div class="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
-            <h3 class="text-sm font-semibold text-white mb-3">Change Password</h3>
+            <h3 class="text-sm font-semibold text-white mb-1">Change Password</h3>
+            <p class="text-[11px] text-slate-400 mb-3">Provide your current password to set a new one. The old password will be completely replaced.</p>
             <form method="POST" class="space-y-3">
                 <input type="hidden" name="action" value="change_password">
                 <div>
-                    <label class="block text-xs text-slate-400 mb-1">New Password</label>
-                    <input type="password" name="new_password" required minlength="6" placeholder="Min 6 characters" 
+                    <label class="block text-xs text-slate-400 mb-1">Current Password</label>
+                    <input type="password" name="current_password" required placeholder="••••••••" 
+                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">New Password (Min 8 chars)</label>
+                    <input type="password" name="new_password" required minlength="8" placeholder="••••••••" 
+                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Confirm New Password</label>
+                    <input type="password" name="confirm_password" required minlength="8" placeholder="••••••••" 
                            class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none">
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
                     <button type="button" onclick="document.getElementById('passwordModal').classList.add('hidden')" class="px-3 py-1.5 text-xs text-slate-400">Cancel</button>
-                    <button type="submit" class="rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400">Update</button>
+                    <button type="submit" class="rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400">Update Password</button>
                 </div>
             </form>
         </div>

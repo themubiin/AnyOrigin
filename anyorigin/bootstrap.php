@@ -3,10 +3,19 @@
 declare(strict_types=1);
 
 /**
- * AnyOrigin - SQLite Database & Cache Bootstrap
+ * AnyOrigin - SQLite Database, Security & Cache Bootstrap
  */
 
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+    ]);
+    session_start();
+}
 
 define('ANYORIGIN_DIR', dirname(__DIR__));
 define('DATA_DIR', ANYORIGIN_DIR . '/data');
@@ -71,6 +80,12 @@ function getDb(): PDO {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            ip TEXT PRIMARY KEY,
+            attempts INTEGER NOT NULL,
+            last_attempt INTEGER NOT NULL
         );
     ");
 
@@ -158,6 +173,53 @@ function validateOriginUrl(string $url): array {
     }
 
     return ['valid' => true, 'host' => $host];
+}
+
+/**
+ * Check if the current installation is still using the initial default password
+ */
+function isUsingDefaultPassword(): bool {
+    $pdo = getDb();
+    $hash = $pdo->query("SELECT value FROM admin_settings WHERE key = 'admin_password_hash'")->fetchColumn();
+    return $hash ? password_verify('admin123', $hash) : false;
+}
+
+/**
+ * Brute-force rate limiting: blocks IP after 5 failed attempts within 15 minutes
+ */
+function isRateLimited(string $ip): bool {
+    $pdo = getDb();
+    $stmt = $pdo->prepare("SELECT attempts, last_attempt FROM login_attempts WHERE ip = ?");
+    $stmt->execute([$ip]);
+    $record = $stmt->fetch();
+
+    if (!$record) return false;
+
+    // Reset after 15 minutes (900 seconds)
+    if (time() - $record['last_attempt'] > 900) {
+        $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?")->execute([$ip]);
+        return false;
+    }
+
+    return $record['attempts'] >= 5;
+}
+
+function recordFailedLogin(string $ip): void {
+    $pdo = getDb();
+    $now = time();
+    $stmt = $pdo->prepare("
+        INSERT INTO login_attempts (ip, attempts, last_attempt) 
+        VALUES (?, 1, ?) 
+        ON CONFLICT(ip) DO UPDATE SET 
+            attempts = attempts + 1, 
+            last_attempt = ?
+    ");
+    $stmt->execute([$ip, $now, $now]);
+}
+
+function resetLoginAttempts(string $ip): void {
+    $pdo = getDb();
+    $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?")->execute([$ip]);
 }
 
 function isAuthenticated(): bool {
