@@ -8,6 +8,7 @@ import {
   logAuditEvent,
   getAuditLogs,
 } from "../src/lib/services";
+import { validateOriginUrl } from "../src/lib/security";
 
 async function runVerification() {
   console.log("=== AnyOrigin Empirical Verification Suite ===\n");
@@ -22,8 +23,24 @@ async function runVerification() {
   console.log(`✓ SQLite initialized. Active site: "${site.name}" (ID: ${site.id})`);
   console.log(`✓ Initial origins count: ${site.origins?.length}`);
 
-  // 2. Verify Adding a New Origin
-  console.log("\n2. Testing origin registration...");
+  // 2. Verify SSRF Protection & URL Validation
+  console.log("\n2. Testing SSRF Shield & URL Validation...");
+  const ssrfTest1 = validateOriginUrl("http://127.0.0.1:8080/admin");
+  const ssrfTest2 = validateOriginUrl("http://169.254.169.254/latest/meta-data/");
+  const ssrfTest3 = validateOriginUrl("http://localhost:3000");
+  const ssrfTest4 = validateOriginUrl("https://my-app.vercel.app");
+
+  if (ssrfTest1.isValid || ssrfTest2.isValid || ssrfTest3.isValid) {
+    throw new Error("SSRF vulnerability detected: Internal IP addresses were not blocked.");
+  }
+  if (!ssrfTest4.isValid) {
+    throw new Error("Valid public origin was incorrectly rejected.");
+  }
+  console.log("✓ SSRF Shield successfully blocked 127.0.0.1, localhost, and AWS metadata (169.254.169.254).");
+  console.log("✓ Valid public origin accepted.");
+
+  // 3. Verify Adding a New Origin
+  console.log("\n3. Testing origin registration...");
   const newOrigin = createOrigin(site.id, {
     name: "Koyeb Backup Origin",
     url: "https://koyeb-backup.app",
@@ -31,8 +48,8 @@ async function runVerification() {
   });
   console.log(`✓ Origin registered: "${newOrigin.name}" with priority ${newOrigin.priority}`);
 
-  // 3. Verify Priority Reordering
-  console.log("\n3. Testing origin priority reordering...");
+  // 4. Verify Priority Reordering
+  console.log("\n4. Testing origin priority reordering...");
   const existingOrigins = site.origins || [];
   const originIds = [newOrigin.id, ...existingOrigins.map((o) => o.id)];
   const reordered = reorderOrigins(site.id, originIds);
@@ -41,8 +58,8 @@ async function runVerification() {
   }
   console.log(`✓ Priority reordered successfully. New #1: "${reordered[0].name}"`);
 
-  // 4. Verify Failover Policy Updates
-  console.log("\n4. Testing failover trigger rules...");
+  // 5. Verify Failover Policy Updates
+  console.log("\n5. Testing failover trigger rules...");
   const updatedRules = updateFailoverRule(site.id, {
     trigger_402: true,
     trigger_429: true,
@@ -54,13 +71,13 @@ async function runVerification() {
   }
   console.log(`✓ Failover policy updated. Latency threshold: ${updatedRules.latency_threshold_ms}ms`);
 
-  // 5. Verify Failover Audit Event Logging
-  console.log("\n5. Testing failover audit logging...");
+  // 6. Verify Failover Audit Event Logging
+  console.log("\n6. Testing failover audit logging & idempotency warning...");
   logAuditEvent(site.id, {
     eventType: "failover",
     fromOriginId: site.origins?.[0]?.id,
     toOriginId: site.origins?.[1]?.id,
-    reason: "Primary origin exhausted quota (HTTP 402). Intercepted and routed to Standby.",
+    reason: "Primary origin exhausted quota (HTTP 402). Intercepted and safely routed to Standby.",
     statusCode: 402,
     latencyMs: 142,
   });

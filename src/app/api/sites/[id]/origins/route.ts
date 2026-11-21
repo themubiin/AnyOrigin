@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOriginsBySiteId, createOrigin, reorderOrigins } from "@/lib/services";
+import { validateOriginUrl } from "@/lib/security";
 
 export async function GET(
   _req: NextRequest,
@@ -26,10 +27,9 @@ export async function POST(
       return NextResponse.json({ error: "Origin name and URL are required" }, { status: 400 });
     }
 
-    try {
-      new URL(body.url);
-    } catch {
-      return NextResponse.json({ error: "Invalid origin URL" }, { status: 400 });
+    const validation = validateOriginUrl(body.url);
+    if (!validation.isValid) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
     const origin = createOrigin(id, {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateOrigin, deleteOrigin } from "@/lib/services";
+import { validateOriginUrl } from "@/lib/security";
 
 export async function PATCH(
   req: NextRequest,
@@ -8,6 +9,13 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await req.json();
+
+    if (body.url) {
+      const validation = validateOriginUrl(body.url);
+      if (!validation.isValid) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+    }
 
     const origin = updateOrigin(id, body);
     if (!origin) {

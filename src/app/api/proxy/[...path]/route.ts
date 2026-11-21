@@ -74,21 +74,25 @@ async function handleProxy(
 
   const pathname = `/${path.join("/")}`;
   const search = req.nextUrl.search;
+  const clientHost = req.headers.get("host") || "localhost";
+  const clientProtocol = req.nextUrl.protocol.replace(":", "");
+  const isSafeMethod = req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS";
 
-  // Buffer body for non-GET/HEAD requests so we can re-send on retry
+  // Buffer body for non-GET/HEAD requests so we can re-send on retry if safe
   let bodyBuffer: ArrayBuffer | null = null;
-  if (req.method !== "GET" && req.method !== "HEAD") {
+  if (!isSafeMethod) {
     bodyBuffer = await req.arrayBuffer();
   }
 
   for (let i = 0; i < origins.length; i++) {
     const origin = origins[i];
     const targetUrl = new URL(pathname + search, origin.url);
+    const upstreamHost = origin.host_header_override || targetUrl.host;
 
     const headers = new Headers(req.headers);
-    headers.set("Host", origin.host_header_override || targetUrl.host);
-    headers.set("X-Forwarded-Host", req.headers.get("host") || "");
-    headers.set("X-Forwarded-Proto", req.nextUrl.protocol.replace(":", ""));
+    headers.set("Host", upstreamHost);
+    headers.set("X-Forwarded-Host", clientHost);
+    headers.set("X-Forwarded-Proto", clientProtocol);
     headers.set("X-AnyOrigin-Tier", String(i + 1));
 
     const startTime = Date.now();
@@ -108,11 +112,19 @@ async function handleProxy(
       clearTimeout(timeoutId);
       const latencyMs = Date.now() - startTime;
 
+      // Check failover trigger conditions
       const is402 = rules?.trigger_402 && upstreamRes.status === 402;
       const is429 = rules?.trigger_429 && upstreamRes.status === 429;
       const is5xx = rules?.trigger_5xx && upstreamRes.status >= 500;
 
-      if ((is402 || is429 || is5xx) && i < origins.length - 1) {
+      // IDEMPOTENCY SAFETY CHECK:
+      // If non-idempotent method (POST/PUT/DELETE) and error is 5xx/crash, DO NOT retry
+      // to prevent double execution / duplicate charging!
+      // Only retry non-idempotent requests on explicit 402 (quota exceeded) or 429 (rate limited),
+      // where the upstream platform guaranteed it did NOT process the transaction.
+      const canSafelyRetry = isSafeMethod || is402 || is429;
+
+      if ((is402 || is429 || is5xx) && canSafelyRetry && i < origins.length - 1) {
         const nextOrigin = origins[i + 1];
         logAuditEvent(site.id, {
           eventType: "failover",
@@ -125,14 +137,42 @@ async function handleProxy(
         continue; // Failover to next origin!
       }
 
-      // Construct client response preserving headers
+      // If unsafe method hit 5xx, do NOT retry: return directly with warning header
+      if (is5xx && !canSafelyRetry) {
+        console.warn(`[AnyOrigin] Suppressed non-idempotent retry for ${req.method} on HTTP ${upstreamRes.status}`);
+      }
+
+      // Construct client response with header rewriting
       const resHeaders = new Headers();
       upstreamRes.headers.forEach((val, key) => {
-        // Strip transfer-encoding to avoid stream chunk conflicts
-        if (key.toLowerCase() !== "transfer-encoding") {
+        const lowerKey = key.toLowerCase();
+
+        // 1. Rewrite Location header to keep visitor on the primary client domain
+        if (lowerKey === "location") {
+          let rewrittenLocation = val;
+          try {
+            const locUrl = new URL(val, targetUrl.origin);
+            if (locUrl.host === targetUrl.host || locUrl.host === upstreamHost) {
+              rewrittenLocation = `${clientProtocol}://${clientHost}${locUrl.pathname}${locUrl.search}${locUrl.hash}`;
+            }
+          } catch {}
+          resHeaders.set(key, rewrittenLocation);
+          return;
+        }
+
+        // 2. Rewrite Set-Cookie domain to bind to client domain
+        if (lowerKey === "set-cookie") {
+          const rewrittenCookie = val.replace(/Domain=[^;]+/gi, `Domain=${clientHost.split(":")[0]}`);
+          resHeaders.append(key, rewrittenCookie);
+          return;
+        }
+
+        // 3. Strip transfer-encoding to avoid stream chunk conflicts
+        if (lowerKey !== "transfer-encoding") {
           resHeaders.set(key, val);
         }
       });
+
       resHeaders.set("X-Served-By-Origin", origin.name);
       resHeaders.set("X-Origin-Latency", `${latencyMs}ms`);
 
@@ -143,19 +183,20 @@ async function handleProxy(
       });
     } catch (err: any) {
       const latencyMs = Date.now() - startTime;
-      if (i < origins.length - 1) {
+      // If safe method, failover on network/timeout error
+      if (isSafeMethod && i < origins.length - 1) {
         const nextOrigin = origins[i + 1];
         logAuditEvent(site.id, {
           eventType: "failover",
           fromOriginId: origin.id,
           toOriginId: nextOrigin.id,
-          reason: `Origin ${origin.name} network failure (${err.message}). Switched to ${nextOrigin.name}`,
+          reason: `Origin ${origin.name} connection dropped (${err.message}). Switched to ${nextOrigin.name}`,
           latencyMs,
         });
         continue;
       }
 
-      return new NextResponse(`All AnyOrigin upstreams failed: ${err.message}`, {
+      return new NextResponse(`All AnyOrigin upstreams failed or unsafe to retry: ${err.message}`, {
         status: 502,
       });
     }

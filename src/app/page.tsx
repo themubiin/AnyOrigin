@@ -219,7 +219,7 @@ export default function DashboardPage() {
     router.push("/login");
   };
 
-  // Generate Cloudflare Edge Worker Code dynamically
+  // Generate Cloudflare Edge Worker Code dynamically with Smart Header & Idempotency Safety
   const generateCloudflareWorkerCode = () => {
     const originsList = origins
       .filter((o) => o.is_active)
@@ -230,9 +230,9 @@ export default function DashboardPage() {
       }));
 
     return `/**
- * AnyOrigin Cloudflare Edge Worker
+ * AnyOrigin Cloudflare Edge Worker (Edge-First Proxy)
  * Generated for: ${site?.name || "Web App"} (${site?.domain || "example.com"})
- * Zero external database • Sub-second multi-cloud failover
+ * Zero SPOF • Sub-second Failover • Idempotency Safe • Auto Header/Cookie Rewriter
  */
 
 const UPSTREAM_ORIGINS = ${JSON.stringify(originsList, null, 2)};
@@ -247,6 +247,15 @@ const FAILOVER_RULES = {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const clientHost = request.headers.get("Host") || url.host;
+    const clientProto = url.protocol.replace(":", "");
+    const isSafeMethod = request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
+
+    // Clone request body for potential retry only if method is safe or explicitly allowed
+    let bodyBuffer = null;
+    if (!isSafeMethod) {
+      bodyBuffer = await request.arrayBuffer();
+    }
 
     for (let i = 0; i < UPSTREAM_ORIGINS.length; i++) {
       const origin = UPSTREAM_ORIGINS[i];
@@ -256,8 +265,8 @@ export default {
 
       const proxyHeaders = new Headers(request.headers);
       proxyHeaders.set("Host", origin.host);
-      proxyHeaders.set("X-Forwarded-Host", url.host);
-      proxyHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
+      proxyHeaders.set("X-Forwarded-Host", clientHost);
+      proxyHeaders.set("X-Forwarded-Proto", clientProto);
       proxyHeaders.set("X-AnyOrigin-Engine", "Cloudflare-Edge");
       proxyHeaders.set("X-AnyOrigin-Tier", String(i + 1));
 
@@ -268,34 +277,62 @@ export default {
         const response = await fetch(targetUrl.toString(), {
           method: request.method,
           headers: proxyHeaders,
-          body: request.method !== "GET" && request.method !== "HEAD" ? request.body : null,
+          body: !isSafeMethod ? bodyBuffer : null,
           redirect: "manual",
           signal: controller.signal,
         });
 
         clearTimeout(timeout);
 
-        // Check failover trigger conditions
-        const is402 = FAILOVER_RULES.trigger402 && response.status === 402;
+        // Platform detection: Check status 402 or Vercel payment error headers
+        const vercelError = response.headers.get("x-vercel-error") || "";
+        const is402 = FAILOVER_RULES.trigger402 && (response.status === 402 || vercelError.includes("DEPLOYMENT_PAUSED"));
         const is429 = FAILOVER_RULES.trigger429 && response.status === 429;
         const is5xx = FAILOVER_RULES.trigger5xx && response.status >= 500;
 
-        if ((is402 || is429 || is5xx) && i < UPSTREAM_ORIGINS.length - 1) {
-          console.warn(\`Origin \${origin.name} returned \${response.status}. Failing over...\`);
+        // IDEMPOTENCY SAFETY:
+        // Only retry non-idempotent methods (POST/PUT/DELETE) on 402/429 where upstream platform rejected prior to execution.
+        const canSafelyRetry = isSafeMethod || is402 || is429;
+
+        if ((is402 || is429 || is5xx) && canSafelyRetry && i < UPSTREAM_ORIGINS.length - 1) {
+          console.warn(\`[AnyOrigin] \${origin.name} returned \${response.status}. Failing over to tier \${i + 2}...\`);
           continue; // Switch to next backup origin!
         }
 
-        // Return healthy or final response with debug headers
-        const clientResponse = new Response(response.body, response);
-        clientResponse.headers.set("X-Served-By-Origin", origin.name);
-        return clientResponse;
+        // Construct client response with Location and Set-Cookie domain rewriting
+        const clientHeaders = new Headers(response.headers);
+
+        // 1. Rewrite Location header to keep visitor on main domain
+        const locationHeader = clientHeaders.get("Location");
+        if (locationHeader) {
+          try {
+            const locUrl = new URL(locationHeader, targetUrl.origin);
+            if (locUrl.host === targetUrl.host || locUrl.host === origin.host) {
+              clientHeaders.set("Location", \`\${clientProto}://\${clientHost}\${locUrl.pathname}\${locUrl.search}\${locUrl.hash}\`);
+            }
+          } catch {}
+        }
+
+        // 2. Rewrite Set-Cookie Domain
+        const setCookie = clientHeaders.get("Set-Cookie");
+        if (setCookie) {
+          const clientDomain = clientHost.split(":")[0];
+          clientHeaders.set("Set-Cookie", setCookie.replace(/Domain=[^;]+/gi, \`Domain=\${clientDomain}\`));
+        }
+
+        clientHeaders.set("X-Served-By-Origin", origin.name);
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: clientHeaders,
+        });
       } catch (err) {
         clearTimeout(timeout);
-        console.error(\`Origin \${origin.name} connection failed:\`, err);
-        if (i < UPSTREAM_ORIGINS.length - 1) {
-          continue; // Try next origin
+        // Only retry on network drop if method is safe
+        if (isSafeMethod && i < UPSTREAM_ORIGINS.length - 1) {
+          continue;
         }
-        return new Response("All AnyOrigin upstream origins are unreachable.", { status: 502 });
+        return new Response("All AnyOrigin upstream origins are unreachable or request is unsafe to retry.", { status: 502 });
       }
     }
 
