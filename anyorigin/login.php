@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($hash && password_verify($password, $hash)) {
         $_SESSION['anyorigin_auth'] = true;
-        header('Location: index.php');
+        header('Location: /anyorigin/index.php');
         exit;
     }
 
@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if (isset($_GET['logout'])) {
     unset($_SESSION['anyorigin_auth']);
     session_destroy();
-    header('Location: login.php');
+    header('Location: /anyorigin/login.php');
     exit;
 }
 ?>

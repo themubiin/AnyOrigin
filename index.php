@@ -6,9 +6,25 @@ declare(strict_types=1);
  * AnyOrigin - Ingress Router & Failover Proxy
  */
 
-// Pass console requests to the management panel
 $request_uri = $_SERVER['REQUEST_URI'] ?? '/';
-if (str_starts_with($request_uri, '/anyorigin')) {
+$request_path = parse_url($request_uri, PHP_URL_PATH) ?? '/';
+
+// Direct static file pass-through for PHP CLI server
+if (php_sapi_name() === 'cli-server') {
+    $static_file = __DIR__ . $request_path;
+    if ($request_path !== '/' && file_exists($static_file) && !is_dir($static_file)) {
+        return false;
+    }
+}
+
+// Pass console requests to the management panel
+if (str_starts_with($request_path, '/anyorigin')) {
+    $sub_path = substr($request_path, strlen('/anyorigin'));
+    $file = __DIR__ . '/anyorigin' . ($sub_path === '' || $sub_path === '/' ? '/index.php' : $sub_path);
+    if (file_exists($file) && !is_dir($file)) {
+        require $file;
+        exit;
+    }
     require __DIR__ . '/anyorigin/index.php';
     exit;
 }

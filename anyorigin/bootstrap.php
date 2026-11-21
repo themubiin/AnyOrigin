@@ -166,7 +166,7 @@ function isAuthenticated(): bool {
 
 function requireAuth(): void {
     if (!isAuthenticated()) {
-        header('Location: login.php');
+        header('Location: /anyorigin/login.php');
         exit;
     }
 }
