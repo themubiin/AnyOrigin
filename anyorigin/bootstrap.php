@@ -87,6 +87,15 @@ function getDb(): PDO {
             attempts INTEGER NOT NULL,
             last_attempt INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS incidents (
+            id TEXT PRIMARY KEY,
+            from_origin TEXT NOT NULL,
+            to_origin TEXT NOT NULL,
+            status_code INTEGER NOT NULL,
+            uri TEXT,
+            created_at TEXT NOT NULL
+        );
     ");
 
     $pwdCheck = $pdo->prepare("SELECT value FROM admin_settings WHERE key = 'admin_password_hash'");

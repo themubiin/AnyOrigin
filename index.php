@@ -140,6 +140,20 @@ foreach ($origins as $index => $origin) {
         continue;
     }
 
+    if (!empty($failed_origins)) {
+        try {
+            $dbPath = __DIR__ . '/data/anyorigin.db';
+            if (file_exists($dbPath)) {
+                $db = new PDO('sqlite:' . $dbPath);
+                $stmt = $db->prepare("INSERT INTO incidents (id, from_origin, to_origin, status_code, uri, created_at) VALUES (?, ?, ?, ?, ?, ?)");
+                foreach ($failed_origins as $fOrig) {
+                    $incId = 'inc-' . bin2hex(random_bytes(4));
+                    $stmt->execute([$incId, $fOrig, $origin['name'], (int)($http_code ?: 0), (string)($request_uri ?? '/'), date('Y-m-d H:i:s')]);
+                }
+            }
+        } catch (\Throwable $e) {}
+    }
+
     // Stream back response
     $total_latency = round((microtime(true) - $start_time) * 1000);
     $response_headers = substr($response, 0, $header_size);
