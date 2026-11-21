@@ -43,7 +43,8 @@ $rules = $config['rules'] ?? [];
 
 if (empty($origins)) {
     http_response_code(503);
-    echo "<h1>503 Service Unavailable</h1><p>No upstream origins configured. Visit <a href='/anyorigin'>/anyorigin</a> to configure hosts.</p>";
+    header('Content-Type: text/html; charset=UTF-8');
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AnyOrigin Gateway - Ready for Setup</title><style>*{box-sizing:border-box}body{background:#090d16;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}.card{background:#0f172a;border:1px solid #1e293b;border-radius:18px;padding:36px;max-width:440px;width:100%;text-align:center;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5)}.pill{display:inline-block;padding:3px 12px;border-radius:99px;background:rgba(56,189,248,0.12);color:#38bdf8;font-size:11.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;margin-bottom:16px}h1{font-size:19px;font-weight:750;margin:0 0 10px;letter-spacing:-.3px}p{font-size:13.5px;color:#94a3b8;line-height:1.55;margin:0 0 24px}a{display:inline-flex;align-items:center;justify-content:center;background:#0284c7;color:#fff;font-size:13.5px;font-weight:650;text-decoration:none;padding:10px 20px;border-radius:10px;transition:background .15s}a:hover{background:#0369a1}</style></head><body><div class="card"><div class="pill">Edge Gateway</div><h1>No Upstream Origins Configured</h1><p>The reverse proxy is operational and ready. Access the admin console to register your primary and standby origins.</p><a href="/anyorigin/">Open Console &rarr;</a></div></body></html>';
     exit;
 }
 

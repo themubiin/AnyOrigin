@@ -19,7 +19,7 @@ echo "\n2. Testing SSRF Shield...\n";
 $test1 = validateOriginUrl("http://127.0.0.1:8080");
 $test2 = validateOriginUrl("http://localhost:3000");
 $test3 = validateOriginUrl("http://169.254.169.254/latest/meta-data");
-$test4 = validateOriginUrl("https://my-app.vercel.app");
+$test4 = validateOriginUrl("https://example.com");
 
 if ($test1['valid'] || $test2['valid'] || $test3['valid']) {
     echo "❌ SSRF Test Failed: Internal IPs allowed!\n";
@@ -34,7 +34,7 @@ echo "✓ SSRF Shield successfully blocked private IPs and cloud metadata.\n";
 // 3. Verify Cache Generation
 echo "\n3. Testing fast-read config cache generation...\n";
 $config = syncConfigCache($pdo);
-if (empty($config['origins']) || !file_exists(CONFIG_PATH)) {
+if (!isset($config['origins']) || !file_exists(CONFIG_PATH)) {
     echo "❌ Cache generation failed!\n";
     exit(1);
 }

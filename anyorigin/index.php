@@ -1019,7 +1019,7 @@ async function postAction(action, data = {}) {
 function render() {
   const onlineHosts = O.filter(o => o.on && o.ok && o.ms > 0);
   const avg = onlineHosts.length ? Math.round(onlineHosts.reduce((a, o) => a + o.ms, 0) / onlineHosts.length) : 0;
-  const live = O.find(o => o.on) || { n: 'No active host configured', u: 'Add an origin in the Origins tab', ms: 0, ok: 0 };
+  const live = O.find(o => o.on) || { n: 'No upstream host configured', u: 'Add your primary origin to begin routing live traffic', ms: 0, ok: 0 };
 
   $('#hn').textContent = live.n;
   $('#hu').textContent = live.u;
@@ -1033,13 +1033,13 @@ function render() {
   // 4 Real KPI Cards
   const totalOrigins = O.length;
   const healthyCount = onlineHosts.length;
-  const standbyCount = O.filter(o => !o.ok || o.ms === 0).length;
+  const standbyCount = totalOrigins > 0 ? O.filter(o => !o.ok || o.ms === 0).length : 0;
 
   const K = [
-    ['Total Origins', totalOrigins, `${O.filter(o => o.on).length} active in pool`, 'up'],
-    ['Reachable Hosts', healthyCount, healthyCount ? 'Responding to health checks' : 'No reachable hosts', healthyCount ? 'up' : 'dn'],
-    ['Standby / Offline', standbyCount, standbyCount ? 'Backups & unreachable' : 'All origins online', 'mu'],
-    ['Avg Latency', avg ? avg + ' ms' : 'Offline', avg ? 'Across reachable hosts' : 'No latency recorded', avg ? 'up' : 'dn']
+    ['Total Origins', totalOrigins, totalOrigins ? `${O.filter(o => o.on).length} active in pool` : 'Pool is empty', totalOrigins ? 'up' : 'mu'],
+    ['Reachable Hosts', healthyCount, healthyCount ? 'Responding to health checks' : (totalOrigins ? 'No reachable hosts' : 'No hosts configured'), healthyCount ? 'up' : (totalOrigins ? 'dn' : 'mu')],
+    ['Standby / Offline', standbyCount, standbyCount ? 'Backups & unreachable' : (totalOrigins ? 'All origins online' : '0 standby hosts'), 'mu'],
+    ['Avg Latency', avg ? avg + ' ms' : (totalOrigins ? 'Offline' : '—'), avg ? 'Across reachable hosts' : (totalOrigins ? 'No response' : 'Awaiting hosts'), avg ? 'up' : 'mu']
   ];
 
   $('#kp').innerHTML = K.map(k => `
@@ -1074,7 +1074,7 @@ function render() {
         ${msBadge}
       </div>
     `;
-  }).join('') : '<div style="padding:16px 0;color:var(--mu);text-align:center">No origins configured yet.</div>';
+  }).join('') : '<div style="padding:28px 16px;color:var(--mu);text-align:center"><div style="font-weight:600;font-size:13px;color:var(--tx)">No Origins in Pool</div><small style="color:var(--mu)">Add upstream servers in the Origins tab to monitor real response times.</small></div>';
 
   // Full Origins List (Origins View)
   $('#list').innerHTML = O.length ? O.map((o, i) => {
@@ -1108,7 +1108,18 @@ function render() {
         </div>
       </div>
     `;
-  }).join('') : '<div style="padding:32px 0;text-align:center;color:var(--mu)">No origins added yet. Click "+ Add origin" to get started.</div>';
+  }).join('') : `
+    <div class="card pad" style="padding:48px 24px;text-align:center">
+      <div style="width:48px;height:48px;border-radius:14px;background:var(--s2);color:var(--mu);display:grid;place-items:center;margin:0 auto 14px">
+        <svg class="i" style="width:24px;height:24px"><use href="#server"/></svg>
+      </div>
+      <h3 style="font-size:16px;font-weight:750;margin-bottom:6px">No origins configured</h3>
+      <p style="font-size:13px;color:var(--mu);max-width:400px;margin:0 auto 18px;line-height:1.5">
+        Add your primary server as Rank #1 and standby backup providers. AnyOrigin will automatically route visitor traffic and fail over during outages.
+      </p>
+      <button class="btn" onclick="$('#dlg').showModal()"><svg class="i"><use href="#plus"/></svg>Add your first origin</button>
+    </div>
+  `;
 
   // Incident Logs (Filtered)
   const filteredEV = activeLogFilter === 'all' 
