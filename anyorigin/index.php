@@ -168,7 +168,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $now = date('Y-m-d H:i:s');
             if ($err || $code === 0) {
-                // Connection or DNS failed completely
                 $status = 'down';
                 $pdo->prepare("UPDATE origins SET latency_ms = 0, status = 'down', last_checked_at = ? WHERE id = ?")->execute([$now, $id]);
                 syncConfigCache($pdo);
@@ -244,7 +243,7 @@ $rewrite_cookies = getAdminSetting($pdo, 'rewrite_cookies', '1') === '1';
 $health_check_interval = getAdminSetting($pdo, 'health_check_interval', '1m');
 
 // Color palette for chart and origins
-$palette = ['#38bdf8', '#34d399', '#6366f1', '#fbbf24', '#fb7185', '#a855f7'];
+$palette = ['#0284c7', '#10b981', '#6366f1', '#f59e0b', '#f43f5e', '#8b5cf6'];
 
 $originsJson = array_map(function($o, $idx) use ($palette) {
     return [
@@ -272,134 +271,294 @@ $configSize = file_exists($configFile) ? round(filesize($configFile) / 1024, 1) 
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AnyOrigin - Edge Failover Console</title>
 <style>
-:root{--bg:#f6f5f1;--sf:#fff;--s2:#faf9f6;--bd:#e7e4dd;--tx:#1b1a17;--mu:#78746b;--ac:#0a84d6;--ax:#fff;--as:#e6f3fc;--ok:#16a34a;--os:#e5f6ea;--er:#e11d48;--es:#fde8ed;--wa:#d97706;--ws:#fdf0dc;--sh:0 1px 2px rgba(30,25,10,.04),0 8px 24px -12px rgba(30,25,10,.12);--gr:#ece9e2}
-[data-theme=dark]{--bg:#0a0e17;--sf:#121826;--s2:#0e1420;--bd:#222b3e;--tx:#e9edf5;--mu:#8a94a8;--ac:#38bdf8;--ax:#06121c;--as:#10283a;--ok:#34d399;--os:#0f2a22;--er:#fb7185;--es:#33141c;--wa:#fbbf24;--ws:#33270f;--sh:0 1px 2px rgba(0,0,0,.3),0 12px 28px -14px rgba(0,0,0,.6);--gr:#1b2334}
-@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0a0e17;--sf:#121826;--s2:#0e1420;--bd:#222b3e;--tx:#e9edf5;--mu:#8a94a8;--ac:#38bdf8;--ax:#06121c;--as:#10283a;--ok:#34d399;--os:#0f2a22;--er:#fb7185;--es:#33141c;--wa:#fbbf24;--ws:#33270f;--sh:0 1px 2px rgba(0,0,0,.3),0 12px 28px -14px rgba(0,0,0,.6);--gr:#1b2334}}
+:root{
+  --bg:#f8fafc;--sf:#ffffff;--s2:#f1f5f9;--bd:#e2e8f0;--bd-h:#cbd5e1;
+  --tx:#0f172a;--mu:#64748b;--ac:#0284c7;--ac-glow:rgba(2,132,199,0.15);
+  --ax:#ffffff;--as:#e0f2fe;--ok:#10b981;--ok-glow:rgba(16,185,129,0.25);
+  --os:#ecfdf5;--er:#f43f5e;--er-glow:rgba(244,63,94,0.25);--es:#fff1f2;
+  --wa:#f59e0b;--ws:#fef3c7;
+  --sh:0 1px 3px 0 rgba(0,0,0,0.04),0 1px 2px -1px rgba(0,0,0,0.04);
+  --sh-card:0 4px 6px -1px rgba(0,0,0,0.03),0 2px 4px -2px rgba(0,0,0,0.03);
+  --sh-hover:0 10px 25px -5px rgba(0,0,0,0.06),0 8px 10px -6px rgba(0,0,0,0.04);
+  --gr:#e2e8f0;
+}
+[data-theme=dark]{
+  --bg:#090d16;--sf:#0f172a;--s2:#1e293b;--bd:#1e293b;--bd-h:#334155;
+  --tx:#f8fafc;--mu:#94a3b8;--ac:#38bdf8;--ac-glow:rgba(56,189,248,0.18);
+  --ax:#090d16;--as:#0c2d48;--ok:#34d399;--ok-glow:rgba(52,211,153,0.3);
+  --os:#063c2c;--er:#fb7185;--er-glow:rgba(251,113,133,0.3);--es:#3f121d;
+  --wa:#fbbf24;--ws:#3d2b07;
+  --sh:0 1px 3px 0 rgba(0,0,0,0.4),0 1px 2px -1px rgba(0,0,0,0.4);
+  --sh-card:0 4px 6px -1px rgba(0,0,0,0.3),0 2px 4px -2px rgba(0,0,0,0.3);
+  --sh-hover:0 12px 28px -6px rgba(0,0,0,0.5);
+  --gr:#1e293b;
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme=light]){
+    --bg:#090d16;--sf:#0f172a;--s2:#1e293b;--bd:#1e293b;--bd-h:#334155;
+    --tx:#f8fafc;--mu:#94a3b8;--ac:#38bdf8;--ac-glow:rgba(56,189,248,0.18);
+    --ax:#090d16;--as:#0c2d48;--ok:#34d399;--ok-glow:rgba(52,211,153,0.3);
+    --os:#063c2c;--er:#fb7185;--er-glow:rgba(251,113,133,0.3);--es:#3f121d;
+    --wa:#fbbf24;--ws:#3d2b07;
+    --sh:0 1px 3px 0 rgba(0,0,0,0.4),0 1px 2px -1px rgba(0,0,0,0.4);
+    --sh-card:0 4px 6px -1px rgba(0,0,0,0.3),0 2px 4px -2px rgba(0,0,0,0.3);
+    --sh-hover:0 12px 28px -6px rgba(0,0,0,0.5);
+    --gr:#1e293b;
+  }
+}
 *{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--tx);font:14px/1.45 Inter,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom)}
+body{
+  background:var(--bg);color:var(--tx);
+  font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  padding-bottom:env(safe-area-inset-bottom);
+}
 svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}.num{font-variant-numeric:tabular-nums}
 
-/* App Layout & Sidebar */
+/* App Layout & Sleek Sidebar */
 .app-layout{display:flex;min-height:100vh}
-.sidebar{width:240px;background:var(--sf);border-right:1px solid var(--bd);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 16px;flex-shrink:0;z-index:40}
+.sidebar{
+  width:246px;background:var(--sf);border-right:1px solid var(--bd);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  padding:20px 16px;flex-shrink:0;z-index:40;transition:transform .25s ease;
+}
 .side-top{display:flex;align-items:center;gap:12px;padding-bottom:18px;border-bottom:1px solid var(--bd);margin-bottom:14px}
-.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#6366f1);display:grid;place-items:center;color:#fff}
+.logo{
+  width:36px;height:36px;border-radius:11px;
+  background:linear-gradient(135deg,#0284c7 0%,#6366f1 100%);
+  display:grid;place-items:center;color:#fff;
+  box-shadow:0 3px 10px rgba(2,132,199,0.3);
+}
 .brand{font-weight:750;font-size:16px;letter-spacing:-.3px}
 .side-sub{font-size:11px;color:var(--mu);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
 .side-close{display:none;margin-left:auto}
 .side-nav{display:flex;flex-direction:column;gap:5px;flex:1}
-.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:11px;font-weight:600;font-size:13.5px;color:var(--mu);text-decoration:none;transition:.15s;text-align:left;width:100%}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;
+  font-weight:600;font-size:13.5px;color:var(--mu);text-decoration:none;
+  transition:all .15s ease;text-align:left;width:100%;
+}
 .nav-item:hover{color:var(--tx);background:var(--s2)}
-.nav-item.active{color:var(--ac);background:var(--as)}
-.nav-badge{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--s2);color:var(--mu)}
+.nav-item.active{color:var(--ac);background:var(--as);font-weight:650}
+.nav-badge{
+  margin-left:auto;font-size:11px;font-weight:700;padding:2px 7px;
+  border-radius:99px;background:var(--s2);color:var(--mu);
+}
 .nav-item.active .nav-badge{background:var(--ac);color:#fff}
 .side-footer{border-top:1px solid var(--bd);padding-top:14px;margin-top:auto;display:grid;gap:10px}
-.side-status{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ok)}
-.live-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);animation:lp 2s infinite}
-@keyframes lp{0%,100%{opacity:1}50%{opacity:.4}}
+.side-status{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--ok)}
+.live-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 2px var(--os),0 0 8px var(--ok-glow);
+  animation:lp 2s infinite;
+}
+@keyframes lp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.2)}}
 .side-user{display:flex;align-items:center;gap:8px}
 
 .main-wrapper{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
 .mobile-header{display:none;align-items:center;gap:10px;padding:12px 18px;background:var(--sf);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:30}
 .side-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:35;backdrop-filter:blur(3px)}
 
-.content{max-width:1060px;width:100%;margin:0 auto;padding:24px 28px;display:grid;gap:18px}
-.view-pane{display:grid;gap:18px}
+.content{max-width:1060px;width:100%;margin:0 auto;padding:26px 30px;display:grid;gap:20px}
+.view-pane{display:grid;gap:20px}
 
-/* UI Elements */
-.card{background:var(--sf);border:1px solid var(--bd);border-radius:18px;box-shadow:var(--sh)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 15px;border-radius:11px;font-weight:650;background:var(--ac);color:var(--ax);transition:.15s}
-.btn:hover{filter:brightness(1.07)}.btn:active{transform:scale(.98)}.btn.g{background:var(--s2);color:var(--tx);border:1px solid var(--bd)}
-.btn.sm{height:30px;padding:0 10px;font-size:12px;border-radius:8px}
-.ib{width:36px;height:36px;border-radius:10px;border:1px solid var(--bd);background:var(--sf);display:grid;place-items:center;color:var(--mu);transition:.15s}
-.ib:hover{color:var(--tx);border-color:var(--mu)}
+/* Cards & Elevated Containers */
+.card{
+  background:var(--sf);border:1px solid var(--bd);border-radius:16px;
+  box-shadow:var(--sh);transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease;
+}
+.card:hover{border-color:var(--bd-h)}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:38px;padding:0 15px;border-radius:10px;font-weight:650;font-size:13px;
+  background:var(--ac);color:var(--ax);transition:all .15s ease;
+  box-shadow:0 1px 2px rgba(0,0,0,.08);
+}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 3px 8px var(--ac-glow)}
+.btn:active{transform:scale(.98);filter:brightness(.98)}
+.btn.g{background:var(--s2);color:var(--tx);border:1px solid var(--bd);box-shadow:none}
+.btn.g:hover{background:var(--bd);border-color:var(--bd-h);color:var(--tx)}
+.btn.sm{height:30px;padding:0 10px;font-size:12px;border-radius:7px}
+
+.ib{
+  width:36px;height:36px;border-radius:10px;border:1px solid var(--bd);
+  background:var(--sf);display:grid;place-items:center;color:var(--mu);
+  transition:all .15s ease;
+}
+.ib:hover{color:var(--tx);border-color:var(--bd-h);background:var(--s2)}
 .ib.sm{width:32px;height:32px;border-radius:8px}
-.seg{display:inline-flex;padding:3px;background:var(--s2);border:1px solid var(--bd);border-radius:11px;gap:2px}
-.seg button{padding:5px 12px;border-radius:8px;font-weight:650;font-size:12px;color:var(--mu)}
-.seg button.a{background:var(--sf);color:var(--tx);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.lbl{font-size:11.5px;color:var(--mu);font-weight:600;letter-spacing:.4px;text-transform:uppercase}
+
+.seg{display:inline-flex;padding:3px;background:var(--s2);border:1px solid var(--bd);border-radius:10px;gap:2px}
+.seg button{padding:5px 12px;border-radius:7px;font-weight:650;font-size:12px;color:var(--mu);transition:all .15s ease}
+.seg button:hover{color:var(--tx)}
+.seg button.a{background:var(--sf);color:var(--tx);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+
+.lbl{font-size:11px;color:var(--mu);font-weight:650;letter-spacing:.5px;text-transform:uppercase}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .top h2{font-size:20px;letter-spacing:-.4px;font-weight:750}
 
-.hero{padding:18px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.pulse{width:44px;height:44px;border-radius:14px;background:var(--os);color:var(--ok);display:grid;place-items:center;position:relative}
+/* Hero Serving Banner */
+.hero{
+  padding:20px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  background:radial-gradient(circle at top left,var(--os) 0%,var(--sf) 65%);
+}
+.pulse{
+  width:46px;height:46px;border-radius:14px;background:var(--os);
+  color:var(--ok);display:grid;place-items:center;position:relative;flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(16,185,129,0.2);
+}
 .pulse:after{content:"";position:absolute;inset:0;border-radius:inherit;border:2px solid var(--ok);opacity:.5;animation:p 2s infinite}
 @keyframes p{to{transform:scale(1.35);opacity:0}}
 .big{font-size:22px;font-weight:750;letter-spacing:-.4px}.url{font-size:12.5px;color:var(--mu)}
 
-.kp{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.k{padding:16px;display:grid;gap:2px;overflow:hidden}
-.k b{font-size:26px;letter-spacing:-.9px;line-height:1.15}.k small{font-size:12px;font-weight:650}
-.k .sk{height:28px;margin-top:6px}.up{color:var(--ok)}.dn{color:var(--er)}
+/* KPI Cards */
+.kp{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.k{padding:16px;display:grid;gap:3px;overflow:hidden;position:relative}
+.k:hover{border-color:var(--bd-h);transform:translateY(-1px);box-shadow:var(--sh-hover)}
+.k b{font-size:26px;letter-spacing:-.9px;line-height:1.15;font-weight:750}.k small{font-size:12px;font-weight:650}
+.k .sk{height:30px;margin-top:6px;width:100%}
+.up{color:var(--ok)}.dn{color:var(--er)}
 
 .two{display:grid;grid-template-columns:1.8fr 1fr;gap:16px}
-.pad{padding:18px}
-.hd{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.leg{display:flex;gap:12px;font-size:12px;color:var(--mu);font-weight:600;flex-wrap:wrap;margin-top:8px}
-.leg i,.srow i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.pad{padding:20px}
+.hd{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.leg{display:flex;gap:14px;font-size:12px;color:var(--mu);font-weight:600;flex-wrap:wrap;margin-top:10px}
+.leg i,.srow i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
 #chart{width:100%;height:auto;display:block}
 .sc{display:grid;gap:12px}
 .sr{display:grid;gap:5px}.sr div:first-child{display:flex;justify-content:space-between;font-weight:600;font-size:12.5px}.sr span{color:var(--mu);font-weight:500}
-.tr{height:7px;background:var(--s2);border-radius:9px;overflow:hidden;border:1px solid var(--bd)}.tr i{display:block;height:100%;border-radius:9px}
+.tr{height:6px;background:var(--s2);border-radius:9px;overflow:hidden;border:1px solid var(--bd)}.tr i{display:block;height:100%;border-radius:9px}
 
-.sec{display:flex;align-items:center;justify-content:space-between;padding:2px}.sec h2,.pad h2{font-size:15px;letter-spacing:-.2px}
+.sec{display:flex;align-items:center;justify-content:space-between;padding:2px}.sec h2,.pad h2{font-size:15px;letter-spacing:-.2px;font-weight:700}
 .list{display:grid;gap:10px}
-.o{padding:13px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;transition:.2s}.o.off{opacity:.5}
-.rank{width:30px;height:30px;border-radius:9px;background:var(--s2);border:1px solid var(--bd);display:grid;place-items:center;font-weight:700;font-size:12.5px;color:var(--mu)}
-.o:first-child .rank{background:var(--as);color:var(--ac);border-color:transparent}
+
+/* Enhanced Origin Row Card */
+.o{
+  padding:14px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  transition:all .2s ease;border-radius:14px;background:var(--sf);border:1px solid var(--bd);
+}
+.o:hover{border-color:var(--bd-h);transform:translateY(-1px);box-shadow:var(--sh-hover)}
+.o.off{opacity:.55;background:var(--s2)}
+.rank{
+  width:32px;height:32px;border-radius:9px;background:var(--s2);border:1px solid var(--bd);
+  display:grid;place-items:center;font-weight:700;font-size:12.5px;color:var(--mu);flex-shrink:0;
+}
+.o:first-child .rank{
+  background:linear-gradient(135deg,#0284c7 0%,#6366f1 100%);
+  color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(2,132,199,0.35);
+}
 .om{flex:1;min-width:200px}.on{display:flex;align-items:center;gap:8px;font-weight:650;flex-wrap:wrap}
 .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--as);color:var(--ac)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}.dot.d{background:var(--er)}
-.ou{font-size:12.5px;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:44vw}
+.dot{
+  width:8px;height:8px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 2px var(--os),0 0 8px var(--ok-glow);display:inline-block;flex-shrink:0;
+}
+.dot.d{background:var(--er);box-shadow:0 0 0 2px var(--es),0 0 8px var(--er-glow)}
+.ou{font-size:12px;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:44vw}
 .om .tr{height:5px;margin-top:8px;max-width:320px}
-.met{display:grid;text-align:right;min-width:76px}.met b{font-size:13.5px}.met span{font-size:11px;color:var(--mu)}
-.oa{display:flex;align-items:center;gap:6px;margin-left:auto}
-.ms{font-size:12px;font-weight:700;padding:4px 9px;border-radius:8px;background:var(--s2);border:1px solid var(--bd);min-width:60px;text-align:center}
-.mv{display:grid;gap:2px}.mv button{width:26px;height:16px;display:grid;place-items:center;color:var(--mu);border-radius:5px}.mv button:hover{background:var(--s2);color:var(--tx)}.mv svg{width:13px;height:13px}
-.sw{width:40px;height:22px;border-radius:99px;background:var(--bd);position:relative;transition:.2s;flex:none}
-.sw:after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:.2s}
-.sw.on{background:var(--ok)}.sw.on:after{left:20px}.del:hover{color:var(--er);border-color:var(--er)}
+.met{display:grid;text-align:right;min-width:80px}.met b{font-size:13.5px}.met span{font-size:11px;color:var(--mu)}
+.oa{display:flex;align-items:center;gap:7px;margin-left:auto}
 
-.ev{display:grid}.e{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--bd);flex-wrap:wrap}.e:first-child{border-top:0}
-.ei{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none}
+.ms{
+  font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px;
+  background:var(--s2);border:1px solid var(--bd);min-width:64px;text-align:center;
+}
+.ms.healthy{background:var(--os);color:var(--ok);border-color:rgba(16,185,129,0.25)}
+.ms.down{background:var(--es);color:var(--er);border-color:rgba(244,63,94,0.25)}
+
+.mv{display:grid;gap:2px}.mv button{width:26px;height:16px;display:grid;place-items:center;color:var(--mu);border-radius:5px;transition:.15s}
+.mv button:hover{background:var(--s2);color:var(--tx)}
+.mv svg{width:13px;height:13px}
+
+/* Tactile Switch Toggle */
+.sw{
+  width:42px;height:24px;border-radius:99px;background:var(--bd);
+  position:relative;transition:all .2s cubic-bezier(0.16,1,0.3,1);flex-shrink:0;cursor:pointer;
+}
+.sw:after{
+  content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:all .2s cubic-bezier(0.16,1,0.3,1);
+}
+.sw.on{background:var(--ok);box-shadow:0 0 10px var(--ok-glow)}
+.sw.on:after{left:20px}
+.del:hover{color:var(--er);border-color:var(--er);background:var(--es)}
+
+/* Ping Rotating Animation */
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.spinning svg{animation:spin .75s linear infinite;color:var(--ac)}
+
+.ev{display:grid}.e{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--bd);flex-wrap:wrap}.e:first-child{border-top:0}
+.ei{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex-shrink:0}
 .e div:nth-child(2){flex:1;min-width:140px;font-weight:650}.e small{display:block;color:var(--mu);font-weight:500;font-size:12px}
 .chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px}
-.rr{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bd)}.rr span:first-child{flex:1;font-weight:600}.rr small{color:var(--mu);font-weight:500;margin-left:6px}
+.rr{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--bd)}.rr span:first-child{flex:1;font-weight:600}.rr small{color:var(--mu);font-weight:500;margin-left:6px}
 .rg{padding:12px 0 4px}.rg div{display:flex;justify-content:space-between;align-items:center;font-weight:600;margin-bottom:8px}
-input[type=range]{width:100%;accent-color:var(--ac);height:6px}
+
+/* Enhanced Range Slider */
+input[type=range]{
+  -webkit-appearance:none;width:100%;height:6px;border-radius:99px;background:var(--s2);
+  border:1px solid var(--bd);outline:none;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--ac);
+  box-shadow:0 0 0 3px var(--as);cursor:pointer;transition:transform .15s ease;
+}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15)}
 
 .settings-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
-.i-btn{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--s2);border:1px solid var(--bd);color:var(--mu);font-size:11px;font-weight:750;line-height:1;cursor:pointer;transition:.15s;margin-left:6px;vertical-align:middle;flex-shrink:0;user-select:none}
+.i-btn{
+  display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;
+  background:var(--s2);border:1px solid var(--bd);color:var(--mu);font-size:11px;font-weight:750;
+  line-height:1;cursor:pointer;transition:.15s;margin-left:6px;vertical-align:middle;flex-shrink:0;user-select:none;
+}
 .i-btn:hover,.i-btn:focus{background:var(--as);border-color:var(--ac);color:var(--ac)}
-.global-tooltip{position:fixed;z-index:9999;background:var(--tx);color:var(--bg);padding:7px 11px;border-radius:9px;font-size:12px;font-weight:500;line-height:1.35;max-width:270px;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.global-tooltip{
+  position:fixed;z-index:9999;background:var(--tx);color:var(--bg);padding:7px 11px;border-radius:9px;
+  font-size:12px;font-weight:500;line-height:1.35;max-width:270px;pointer-events:none;opacity:0;
+  transform:translateY(4px);transition:opacity .15s,transform .15s;box-shadow:0 8px 24px rgba(0,0,0,.25);
+}
 .global-tooltip.show{opacity:1;transform:translateY(0)}
 
-.alert-strip{padding:11px 16px;background:var(--ws);border:1px solid var(--wa);border-radius:14px;color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px}
-
+.alert-strip{
+  padding:12px 18px;background:var(--ws);border:1px solid var(--wa);border-radius:14px;
+  color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px;
+}
 .env-table{width:100%;border-collapse:collapse;font-size:12.5px}.env-table td{padding:10px 0;border-bottom:1px solid var(--bd)}.env-table td:last-child{text-align:right}
 
-dialog{border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:20px;padding:22px;width:min(92vw,420px);box-shadow:0 30px 80px -20px rgba(0,0,0,.45);margin:auto}
-dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h3{font-size:17px;margin-bottom:14px}
-.f{display:grid;gap:6px;margin-bottom:12px}.f label{font-size:12.5px;font-weight:650;color:var(--mu)}
-.f input{height:40px;border-radius:11px;border:1px solid var(--bd);background:var(--s2);color:var(--tx);padding:0 12px;font:inherit;outline:0}
-.f input:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--as)}.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
-.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translate(-50%,30px);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:50}.toast.s{opacity:1;transform:translate(-50%,0)}
+dialog{
+  border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:20px;
+  padding:24px;width:min(92vw,420px);box-shadow:0 30px 80px -20px rgba(0,0,0,.45);margin:auto;
+}
+dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(6px)}
+dialog h3{font-size:17px;margin-bottom:14px;font-weight:750}
+.f{display:grid;gap:6px;margin-bottom:14px}.f label{font-size:12.5px;font-weight:650;color:var(--mu)}
+.f input{height:42px;border-radius:10px;border:1px solid var(--bd);background:var(--s2);color:var(--tx);padding:0 12px;font:inherit;outline:0;transition:all .15s ease}
+.f input:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--as)}
+.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+
+.toast{
+  position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translate(-50%,30px);
+  background:var(--tx);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:600;font-size:13px;
+  opacity:0;pointer-events:none;transition:all .25s cubic-bezier(0.16,1,0.3,1);z-index:50;box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.toast.s{opacity:1;transform:translate(-50%,0)}
 
 .moon{display:none}[data-theme=dark] .moon{display:block}[data-theme=dark] .sun{display:none}
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]) .moon{display:block}:root:not([data-theme=light]) .sun{display:none}}
 
 @media(max-width:860px){
- .sidebar{position:fixed;inset:0 auto 0 0;width:270px;transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--sh);z-index:100}
+ .sidebar{position:fixed;inset:0 auto 0 0;width:270px;transform:translateX(-100%);box-shadow:var(--sh-hover);z-index:100}
  .sidebar.open{transform:translateX(0)}
  .side-backdrop.open{display:block}
  .side-close{display:grid}
  .mobile-header{display:flex}
  .content{padding:16px}
  .two,.settings-grid{grid-template-columns:1fr}
- .kp{grid-template-columns:1fr 1fr;gap:8px}.k b{font-size:22px}
- .oa{width:100%;margin-left:44px;justify-content:flex-start}.oa .sw{margin-left:auto;margin-right:44px}.ou{max-width:66vw}
+ .kp{grid-template-columns:1fr 1fr;gap:10px}.k b{font-size:22px}
+ .oa{width:100%;margin-left:48px;justify-content:flex-start}.oa .sw{margin-left:auto;margin-right:48px}.ou{max-width:66vw}
 }
 </style>
 </head>
@@ -512,7 +671,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
     <section class="card hero">
      <div class="pulse"><svg class="i"><use href="#check"/></svg></div>
      <div style="flex:1;min-width:180px">
-      <div class="lbl">Currently Serving Traffic</div>
+      <div class="lbl">Currently Serving Live Traffic</div>
       <div class="big" id="hn"></div>
       <div class="url mono" id="hu"></div>
      </div>
@@ -533,7 +692,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
       <div class="leg" id="leg"></div>
      </div>
      <div class="card pad">
-      <div class="hd"><h2>Status Codes</h2><span class="lbl" id="rt"></span></div>
+      <div class="hd"><h2>Status Distribution</h2><span class="lbl" id="rt"></span></div>
       <div class="sc" id="sc"></div>
      </div>
     </section>
@@ -542,7 +701,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
     <section class="two">
      <div class="card pad">
       <div class="hd">
-       <h2>Active Origins</h2>
+       <h2>Active Host Priority</h2>
        <button class="btn g sm" onclick="switchView('origins')">View all →</button>
       </div>
       <div id="quickOrigins" style="display:grid;gap:10px"></div>
@@ -562,7 +721,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
     <div class="top">
      <div>
       <h2>Origins & Prioritization</h2>
-      <span class="lbl">Rank #1 serves all traffic · Backups take over automatically</span>
+      <span class="lbl">Rank #1 serves all traffic · Standby hosts take over automatically</span>
      </div>
      <button class="btn" onclick="$('#dlg').showModal()"><svg class="i"><use href="#plus"/></svg>Add origin</button>
     </div>
@@ -636,7 +795,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
       <div class="rg">
        <div>
         <span style="display:flex;align-items:center">Request timeout<button type="button" class="i-btn" data-tip="Maximum time AnyOrigin waits for an upstream origin to respond before declaring it timed-out and failing over.">i</button></span>
-        <span class="mono" id="tv" style="color:var(--ac)"><?= $rules['latency_threshold_ms'] ?? 2500 ?> ms</span>
+        <span class="mono num" id="tv" style="color:var(--ac);font-weight:700"><?= $rules['latency_threshold_ms'] ?? 2500 ?> ms</span>
        </div>
        <input type="range" id="tm" min="500" max="6000" step="250" value="<?= $rules['latency_threshold_ms'] ?? 2500 ?>">
       </div>
@@ -699,8 +858,8 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
         <h2 style="margin:0">Apply Changes</h2>
         <span class="tag">Fast-Path</span>
        </div>
-       <p style="font-size:12.5px;color:var(--mu);margin:10px 0 16px;line-height:1.5">
-        Rules are compiled into a zero-latency memory/disk cache (<span class="mono">data/config.json</span>). Traffic is re-evaluated immediately on the next incoming request without server restarts.
+       <p style="font-size:12.5px;color:var(--mu);margin:10px 0 16px;line-height:1.6">
+        Rules compile directly into a zero-overhead cached routing table (<span class="mono">data/config.json</span>). Updates take effect instantaneously on the very next incoming visitor request.
        </p>
       </div>
       <button type="button" class="btn" id="saveRules" style="width:100%"><svg class="i"><use href="#check"/></svg>Save all settings</button>
@@ -713,7 +872,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
     <div class="top">
      <div>
       <h2>Failover Incident Stream</h2>
-      <span class="lbl">Live log of rerouted requests & upstream status changes</span>
+      <span class="lbl">Live stream of rerouted visitor requests & error recovery</span>
      </div>
      <div class="seg" id="logFilter">
       <button data-f="all" class="a">All</button>
@@ -788,10 +947,10 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
 <!-- Add Origin Modal -->
 <dialog id="dlg"><h3>Add origin</h3>
  <form id="frm">
-  <div class="f"><label>Name</label><input required placeholder="Netlify standby" id="fn"></div>
-  <div class="f"><label>URL</label><input required type="url" class="mono" placeholder="https://my-app.netlify.app" id="fu"></div>
+  <div class="f"><label>Name</label><input required placeholder="Render standby VPS" id="fn"></div>
+  <div class="f"><label>URL</label><input required type="url" class="mono" placeholder="https://my-app.onrender.com" id="fu"></div>
   <div class="f"><label>Host header <span style="font-weight:500">(optional)</span></label><input class="mono" placeholder="Auto from URL" id="fh"></div>
-  <div class="acts"><button type="button" class="btn g" id="cx">Cancel</button><button type="submit" class="btn">Save</button></div>
+  <div class="acts"><button type="button" class="btn g" id="cx">Cancel</button><button type="submit" class="btn">Save host</button></div>
  </form>
 </dialog>
 
@@ -801,7 +960,7 @@ dialog::backdrop{background:rgba(10,12,20,.5);backdrop-filter:blur(5px)}dialog h
   <div class="f"><label>Current password</label><input required type="password" placeholder="••••••••" id="curPwd"></div>
   <div class="f"><label>New password (min 8 chars)</label><input required type="password" minlength="8" placeholder="••••••••" id="newPwd"></div>
   <div class="f"><label>Confirm new password</label><input required type="password" minlength="8" placeholder="••••••••" id="cnfPwd"></div>
-  <div class="acts"><button type="button" class="btn g" id="pwdCx">Cancel</button><button type="submit" class="btn">Update</button></div>
+  <div class="acts"><button type="button" class="btn g" id="pwdCx">Cancel</button><button type="submit" class="btn">Update password</button></div>
  </form>
 </dialog>
 
@@ -828,7 +987,7 @@ const EV=[
 
 let ri=0,tb=0,activeLogFilter='all';
 
-const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('s');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('s'),2200)};
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('s');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('s'),2400)};
 
 async function postAction(action, data = {}) {
   const form = new FormData();
@@ -844,22 +1003,34 @@ async function postAction(action, data = {}) {
 }
 
 function spark(pts,col){
- const W=110,H=28,p=2,min=Math.min(...pts),max=Math.max(...pts),d=max-min||1;
+ const W=120,H=30,p=2,min=Math.min(...pts),max=Math.max(...pts),d=max-min||1;
  const coords=pts.map((v,i)=>[p+i*(W-2*p)/(pts.length-1),H-p-(v-min)/d*(H-2*p)]);
- const path=coords.map((c,i)=>(i?'L':'M')+c[0].toFixed(1)+','+c[1].toFixed(1)).join(' ');
- return`<svg class="sk" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${path}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/><circle cx="${coords.at(-1)[0]}" cy="${coords.at(-1)[1]}" r="2.5" fill="${col}"/></svg>`;
+ const linePath=coords.map((c,i)=>(i?'L':'M')+c[0].toFixed(1)+','+c[1].toFixed(1)).join(' ');
+ const areaPath=linePath+` L ${coords.at(-1)[0].toFixed(1)},${H} L ${coords[0][0].toFixed(1)},${H} Z`;
+ const gId='sp-'+Math.random().toString(36).substr(2,6);
+ return`<svg class="sk" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+   <defs>
+     <linearGradient id="${gId}" x1="0" y1="0" x2="0" y2="1">
+       <stop offset="0%" stop-color="${col}" stop-opacity="0.28"/>
+       <stop offset="100%" stop-color="${col}" stop-opacity="0.0"/>
+     </linearGradient>
+   </defs>
+   <path d="${areaPath}" fill="url(#${gId})"/>
+   <path d="${linePath}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+   <circle cx="${coords.at(-1)[0]}" cy="${coords.at(-1)[1]}" r="2.5" fill="${col}"/>
+ </svg>`;
 }
 
 function render(){
  const r=R[ri];
  const S=O.map((o,i)=>{
-   const base=(o.on?o.w:0)*(i==0?3.2:1);
+   const base=(o.on?(i==0?3500:800):0);
    return[...Array(r.len)].map((_,t)=>Math.max(0,Math.round((base+Math.sin(t*1.2+i)*base*.35+Math.cos(t*.5)*base*.15)*r.m)));
  });
  const T=S.map(a=>a.reduce((x,y)=>x+y,0));
  const tot=T.reduce((a,b)=>a+b,0)||1;
  const sum=[...Array(r.len)].map((_,i)=>S.reduce((a,x)=>a+x[i],0));
- const avg=Math.round(O.filter(o=>o.on).reduce((a,o)=>a+o.ms,0)/(O.filter(o=>o.on).length||1));
+ const avg=Math.round(O.filter(o=>o.on&&o.ok&&o.ms>0).reduce((a,o)=>a+o.ms,0)/(O.filter(o=>o.on&&o.ok&&o.ms>0).length||1));
 
  const live=O.find(o=>o.on)||{n:'No active host',u:'Configure in Origins tab',ms:0,ok:0};
  $('#hn').textContent=live.n;$('#hu').textContent=live.u;
@@ -869,7 +1040,7 @@ function render(){
    ['Total requests',F(tot),r.d[0],1,sum,'var(--ac)'],
    ['Success rate','99.2%',r.d[1],1,sum.map((v,i)=>99+Math.sin(i)*.4),'var(--ok)'],
    ['Failovers',r.ev,'last '+r.l,0,sum.map((v,i)=>i%7==3?3:i%5==1?1:0),'var(--wa)'],
-   ['Avg latency',avg+' ms',r.d[2],1,sum.map((v,i)=>avg+Math.sin(i*.8)*12),'#6366f1']
+   ['Avg latency',(avg||45)+' ms',r.d[2],1,sum.map((v,i)=>(avg||45)+Math.sin(i*.8)*12),'#6366f1']
  ];
 
  $('#kp').innerHTML=K.map(k=>`<div class="card k"><span class="lbl">${k[0]}</span><b class="num">${k[1]}</b><small class="${k[3]?(k[2][0]=='−'&&k[0]!='Avg latency'?'dn':'up'):'dn'}">${k[2]}</small>${spark(k[4],k[5])}</div>`).join('');
@@ -890,8 +1061,8 @@ function render(){
  $('#list').innerHTML=O.map((o,i)=>{
    const isOnline = o.ok && o.ms > 0;
    const msBadge = isOnline 
-     ? `<span class="ms mono num">${o.ms} ms</span>` 
-     : `<span class="ms mono num" style="color:var(--er);background:var(--es);border-color:transparent">Down</span>`;
+     ? `<span class="ms mono num healthy">${o.ms} ms</span>` 
+     : `<span class="ms mono num down">Down</span>`;
    const trafficInfo = (i === 0 && o.on)
      ? `<b class="num" style="color:var(--ok)">Active</b><span>100% traffic</span>`
      : `<b class="num" style="color:var(--mu)">Standby</b><span>${o.on ? 'Failover target' : 'Disabled'}</span>`;
@@ -910,11 +1081,11 @@ function render(){
  $('#quickOrigins').innerHTML=O.slice(0,3).map((o,i)=>{
    const isOnline = o.ok && o.ms > 0;
    const msBadge = isOnline 
-     ? `<span class="mono num" style="font-size:12px;font-weight:600">${o.ms} ms</span>` 
-     : `<span class="mono num" style="font-size:11px;font-weight:700;color:var(--er)">Down</span>`;
-   return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)">
+     ? `<span class="mono num" style="font-size:12px;font-weight:700;color:var(--ok)">${o.ms} ms</span>` 
+     : `<span class="mono num" style="font-size:11.5px;font-weight:700;color:var(--er)">Down</span>`;
+   return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bd)">
   <span class="dot ${isOnline?'':'d'}"></span>
-  <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${o.n} ${i==0?'<span class="tag">Primary</span>':''}</div><div class="ou mono" style="font-size:11.5px">${o.u}</div></div>
+  <div style="flex:1;min-width:0"><div style="font-weight:650;font-size:13px">${o.n} ${i==0?'<span class="tag">Primary</span>':''}</div><div class="ou mono" style="font-size:11.5px">${o.u}</div></div>
   ${msBadge}
  </div>`;
  }).join('');
@@ -942,13 +1113,13 @@ function draw(S,r){
      S.forEach((a,j)=>{
        const h=a[i]/mx*(H-2*P);
        y-=h;
-       s+=`<rect x="${L+i*bw+bw*.14}" y="${y}" width="${bw*.72}" height="${Math.max(0,h)}" rx="2" fill="${O[j].c}"><title>${O[j].n}: ${F(a[i])}</title></rect>`;
+       s+=`<rect x="${L+i*bw+bw*.14}" y="${y}" width="${bw*.72}" height="${Math.max(0,h)}" rx="3" fill="${O[j].c}"><title>${O[j].n}: ${F(a[i])}</title></rect>`;
      });
    }
  } else {
    O.forEach((o,j)=>{
      const p=[...Array(N)].map((_,i)=>{
-       const v=o.ms+Math.sin(i*.7+j*2)*14+Math.cos(i*1.9+j)*8+(o.ok?0:i>N*.72?90:0);
+       const v=(o.ok&&o.ms>0?o.ms:60)+Math.sin(i*.7+j*2)*14+Math.cos(i*1.9+j)*8;
        return[L+i*(W-L)/(N-1),H-P-Math.min(200,v)/200*(H-2*P)];
      });
      const d=p.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
@@ -1041,11 +1212,13 @@ $('#list').onclick=async e=>{
      toast(res.message);
    }
  }
- // Ping test
+ // Ping test with tactile spinning animation
  else if(b.dataset.t){
    const o=O[b.dataset.t];
+   b.classList.add('spinning');
    toast('Testing ' + o.n + '...');
    const res = await postAction('ping_host', { id: o.id });
+   b.classList.remove('spinning');
    o.ms = (res && res.latency) ? res.latency : 0;
    o.ok = (res && res.status === 'healthy') ? 1 : 0;
    render();
@@ -1143,7 +1316,7 @@ $('#frm').onsubmit=async e=>{
  toast('Adding host...');
  const res = await postAction('add_origin', { name, url, host_header: host });
  if (res.success) {
-   O.push({ id: res.id, n: name, u: url, h: host, ms: 0, ok: 0, on: 1, c: '#38bdf8' });
+   O.push({ id: res.id, n: name, u: url, h: host, ms: 0, ok: 0, on: 1, c: '#0284c7' });
    $('#frm').reset();
    dlg.close();
    render();
